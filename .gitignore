@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+dist/
+coverage/
+
+*.log
+*.tsbuildinfo
+
+.playwright-mcp/
+
+.env
+.env.*
+.DS_Store
