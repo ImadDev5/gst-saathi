@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ContactForm from "@/components/ContactForm";
 
 const countries = [
   { flag: "🇺🇸", label: "United States" },
@@ -117,25 +118,11 @@ const testimonials = [
   },
 ];
 
-const serviceOptions = [
-  "Healthcare BPO",
-  "Tech Staffing & Development",
-  "Sales & Lead Generation",
-  "Finance & Accounting",
-  "Customer Support",
-  "AI & Data Services",
-];
-
 export default function Home() {
   const pageRef = useRef<HTMLDivElement>(null);
   const heroCanvasRef = useRef<HTMLCanvasElement>(null);
   const globeCanvasRef = useRef<HTMLDivElement>(null);
   const globeSurfaceRef = useRef<HTMLCanvasElement>(null);
-  const fullNameRef = useRef<HTMLInputElement>(null);
-  const businessEmailRef = useRef<HTMLInputElement>(null);
-  const phoneNumberRef = useRef<HTMLInputElement>(null);
-  const serviceInterestRef = useRef<HTMLSelectElement>(null);
-  const messageRef = useRef<HTMLTextAreaElement>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -359,23 +346,6 @@ export default function Home() {
       cleanupFns.reverse().forEach((cleanup) => cleanup());
     };
   }, []);
-
-  const handleFormSubmit = () => {
-    const fullName = fullNameRef.current?.value.trim() ?? "";
-    const businessEmail = businessEmailRef.current?.value.trim() ?? "";
-    const phoneNumber = phoneNumberRef.current?.value.trim() ?? "";
-    const serviceInterest = serviceInterestRef.current?.value.trim() ?? "";
-    const message = messageRef.current?.value.trim() ?? "";
-
-    if (!fullName || !businessEmail || !phoneNumber || !serviceInterest) {
-      window.alert("Please fill in all required fields (*)");
-      return;
-    }
-
-    const text = `🚀 APEX AGI Solutions INQUIRY:\n\nName: ${fullName}\nEmail: ${businessEmail}\nPhone: ${phoneNumber}\nService: ${serviceInterest}\nMessage: ${message}`;
-    const whatsappUrl = `https://wa.me/918897443961?text=${encodeURIComponent(text)}`;
-    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
-  };
 
   return (
     <div ref={pageRef} className="bg-void text-white">
@@ -834,68 +804,8 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="glass-card rounded-2xl border-l-4 border-l-cyan-400 p-8">
-              <h3 className="mb-6 font-mono text-sm uppercase text-gray-500">
-                Secure Transmission Protocol
-              </h3>
-              <form className="space-y-6">
-                <div className="group relative">
-                  <input
-                    ref={fullNameRef}
-                    type="text"
-                    placeholder="Full Name *"
-                    className="w-full border-b border-gray-700 bg-transparent py-3 text-white transition-colors focus:border-cyan-400 focus:outline-none"
-                  />
-                </div>
-                <div className="group relative">
-                  <input
-                    ref={businessEmailRef}
-                    type="email"
-                    placeholder="Business Email *"
-                    className="w-full border-b border-gray-700 bg-transparent py-3 text-white transition-colors focus:border-cyan-400 focus:outline-none"
-                  />
-                </div>
-                <div className="group relative">
-                  <input
-                    ref={phoneNumberRef}
-                    type="tel"
-                    placeholder="Phone Number *"
-                    className="w-full border-b border-gray-700 bg-transparent py-3 text-white transition-colors focus:border-cyan-400 focus:outline-none"
-                  />
-                </div>
-                <div className="group relative">
-                  <select
-                    ref={serviceInterestRef}
-                    defaultValue=""
-                    className="w-full appearance-none border-b border-gray-700 bg-transparent py-3 text-white transition-colors focus:border-cyan-400 focus:outline-none"
-                  >
-                    <option value="" className="bg-void">
-                      Select Service *
-                    </option>
-                    {serviceOptions.map((option) => (
-                      <option key={option} value={option} className="bg-void">
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="group relative">
-                  <textarea
-                    ref={messageRef}
-                    rows={2}
-                    placeholder="Tell us about your requirements (Optional)"
-                    className="w-full border-b border-gray-700 bg-transparent py-3 text-white transition-colors focus:border-cyan-400 focus:outline-none"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleFormSubmit}
-                  className="btn-solid mt-4 w-full rounded-sm py-4 text-sm uppercase tracking-widest"
-                >
-                  Request Free Consultation
-                </button>
-              </form>
+            <div className="glass-card rounded-2xl border-l-4 border-l-cyan-400">
+              <ContactForm />
             </div>
           </div>
 

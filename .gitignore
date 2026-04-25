@@ -1,14 +1,82 @@
+# === Dependencies ===
 node_modules/
+.pnp/
+.pnp.js
+
+# === Build output ===
 .next/
 out/
 dist/
+build/
 coverage/
-
-*.log
 *.tsbuildinfo
 
-.playwright-mcp/
+# === Logs ===
+*.log
+npm-debug.log*
 
+# === Environment ===
 .env
 .env.*
+!.env.example
+
+# === OS ===
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === AI tool configs (not part of project) ===
+.adal/
+.agents/
+.augment/
+.bob/
+.claude/
+.codebuddy/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.playwright-mcp/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+skills/
+skills-lock.json
+
+# === Testing ===
+playwright-report/
+test-results/
+
+# === Vercel ===
+.vercel/
+
+# === Old project artifacts (not part of GSTSaathi) ===
+*.png
+*.docx
+index.html
+tailwind.config.ts
+opencode-*.md
+docx_text.txt
