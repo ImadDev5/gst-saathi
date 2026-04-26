@@ -54,7 +54,21 @@ export default function RetailDashboard() {
               <span className="text-sm text-gray-500 font-normal">Module B — Retail Ledger</span>
             </h1>
           </div>
-          <a href="/" className="text-xs text-gray-500 hover:text-gray-300">← Back</a>
+          <div className="flex items-center gap-3">
+            <a href="/admin" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+              Admin
+            </a>
+            <button
+              onClick={async () => {
+                await fetch("/api/v1/auth/logout", { method: "POST" });
+                window.location.href = "/";
+              }}
+              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              Sign Out
+            </button>
+            <a href="/" className="text-xs text-gray-500 hover:text-gray-300">← Back</a>
+          </div>
         </header>
 
         {/* Today */}

@@ -93,18 +93,22 @@ export default function StatementUpload({ onUploadComplete }: Props) {
     setProgress(10);
     setErrorMsg("");
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+
     try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("bankName", bankName);
-      formData.append("trialToken", document.cookie.replace(/(?:(?:^|.*;\s*)trial_token\s*=\s*([^;]*).*$)|^.*$/, "$1"));
 
       setProgress(30);
       const res = await fetch("/api/v1/statements/upload", {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
       const json = await res.json();
 
       if (!res.ok) {
@@ -116,8 +120,14 @@ export default function StatementUpload({ onUploadComplete }: Props) {
       setStatementId(json.statementId);
       pollStatus(json.statementId);
     } catch (err) {
-      setStatus("error");
-      setErrorMsg("Network error — check your connection");
+      clearTimeout(timeoutId);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setStatus("error");
+        setErrorMsg("Processing timed out — file may be too large. Try a smaller file.");
+      } else {
+        setStatus("error");
+        setErrorMsg("Network error — check your connection");
+      }
     }
   };
 

@@ -373,6 +373,9 @@ export default function Home() {
             <a href="#industries" className="text-gray-400 transition-colors hover:text-white">
               / INDUSTRIES
             </a>
+            <a href="/signin" className="text-gray-400 transition-colors hover:text-white">
+              Sign In
+            </a>
             <a href="#contact" className="btn-neon rounded-sm px-6 py-2 text-xs font-bold">
               Initialize
             </a>
@@ -414,6 +417,13 @@ export default function Home() {
             onClick={() => setMobileMenuOpen(false)}
           >
             Industries
+          </a>
+          <a
+            href="/signin"
+            className="font-display text-lg text-gray-400 hover:text-white"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Sign In
           </a>
           <a
             href="#contact"

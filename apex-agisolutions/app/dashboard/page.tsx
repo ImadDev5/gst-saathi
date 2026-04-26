@@ -160,6 +160,21 @@ export default function Dashboard() {
             >
               <Share2 size={14} /> Share with CA
             </button>
+            <button
+              onClick={async () => {
+                await fetch("/api/v1/auth/logout", { method: "POST" });
+                window.location.href = "/";
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded transition-colors"
+            >
+              Sign Out
+            </button>
+            <a
+              href="/admin"
+              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              Admin
+            </a>
             <a
               href="/"
               className="text-xs text-gray-500 hover:text-gray-300 ml-2 transition-colors"

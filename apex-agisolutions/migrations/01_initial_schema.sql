@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   phone TEXT NOT NULL,
   business_name TEXT NOT NULL,
   gstin TEXT,
-  status TEXT DEFAULT 'NEW' CHECK(status IN ('NEW', 'CONTACTED', 'ONBOARDED', 'REJECTED')),
+  status TEXT DEFAULT 'NEW' CHECK(status IN ('NEW', 'ASSIGNED', 'CONTACTED', 'ONBOARDED', 'REJECTED')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

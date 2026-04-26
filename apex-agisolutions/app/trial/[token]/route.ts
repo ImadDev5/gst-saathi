@@ -3,9 +3,9 @@ import { supabaseServer } from "@/lib/supabase/client";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
-  const { token } = params;
+  const { token } = await params;
 
   if (!token) {
     return NextResponse.redirect(new URL("/?error=missing_token", req.url));
