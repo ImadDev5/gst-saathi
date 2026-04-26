@@ -1,10 +1,8 @@
 import { inngest } from "@/inngest/client";
-import { processStatement } from "@/inngest/functions";
+import { processStatement, sendGstr3bReminders } from "@/inngest/functions";
 import { serve } from "inngest/next";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [
-    processStatement,
-  ],
+  functions: [processStatement, sendGstr3bReminders],
 });

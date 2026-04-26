@@ -12,7 +12,19 @@ export async function POST(req: NextRequest) {
     const trialToken = formData.get("trialToken") as string;
 
     if (!file || !bankName || !trialToken) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 },
+      );
+    }
+
+    const fileExt = file.name.split(".").pop()?.toLowerCase();
+
+    if (fileExt !== "csv" && fileExt !== "pdf") {
+      return NextResponse.json(
+        { error: "Only CSV and PDF files are supported" },
+        { status: 400 },
+      );
     }
 
     // Step 1: Validate Trial Token
@@ -23,12 +35,14 @@ export async function POST(req: NextRequest) {
       .eq("token", trialToken)
       .single();
 
-    if (trialError || !trialSession || trialSession.status !== 'ACTIVE') {
-      return NextResponse.json({ error: "Invalid or expired trial token" }, { status: 401 });
+    if (trialError || !trialSession || trialSession.status !== "ACTIVE") {
+      return NextResponse.json(
+        { error: "Invalid or expired trial token" },
+        { status: 401 },
+      );
     }
 
     // Step 2: Upload File to Supabase Storage
-    const fileExt = file.name.split(".").pop();
     const storagePath = `${trialSession.id}/${crypto.randomUUID()}.${fileExt}`;
 
     const { error: uploadError } = await supabaseServer.storage
@@ -37,7 +51,10 @@ export async function POST(req: NextRequest) {
 
     if (uploadError) {
       console.error("Storage Error:", uploadError);
-      return NextResponse.json({ error: "Failed to upload file to storage" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to upload file to storage" },
+        { status: 500 },
+      );
     }
 
     // Step 3: Insert Initial Record to Statements Table
@@ -54,7 +71,10 @@ export async function POST(req: NextRequest) {
 
     if (dbError || !statement) {
       console.error("DB Error:", dbError);
-      return NextResponse.json({ error: "Failed to track statement in Database" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to track statement in Database" },
+        { status: 500 },
+      );
     }
 
     // Step 4: Dispatch Event to Inngest for Background Parsing
@@ -69,14 +89,19 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ 
-      success: true, 
-      statementId: statement.id, 
-      message: "File processing triggered successfully." 
-    }, { status: 202 });
-
+    return NextResponse.json(
+      {
+        success: true,
+        statementId: statement.id,
+        message: "File processing triggered successfully.",
+      },
+      { status: 202 },
+    );
   } catch (err: unknown) {
     console.error("Statement upload error:", err);
-    return NextResponse.json({ error: "Server encountered an unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Server encountered an unknown error" },
+      { status: 500 },
+    );
   }
 }
