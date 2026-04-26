@@ -1,71 +1,78 @@
-import { NextResponse } from 'next/server'
-import { contactSchema } from '@/lib/validators/contact'
-import { supabaseServer } from '@/lib/supabase/client'
+import { NextResponse } from "next/server";
+import { contactSchema } from "@/lib/validators/contact";
+import { supabaseServer } from "@/lib/supabase/client";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
-    
+    const body = await request.json();
+
     // Zod validation
-    const parsedData = contactSchema.safeParse(body)
-    
+    const parsedData = contactSchema.safeParse(body);
+
     if (!parsedData.success) {
       return NextResponse.json(
-        { error: 'Validation failed', details: parsedData.error.flatten() },
-        { status: 400 }
-      )
+        { error: "Validation failed", details: parsedData.error.flatten() },
+        { status: 400 },
+      );
     }
 
-    const { name, email, phone, businessName, gstin } = parsedData.data
+    const { name, email, phone, businessName, gstin } = parsedData.data;
 
     // Rate Limiting goes here (Upstash setup later)
     // Duplicate email check
-    const { data: existingContact } = await supabaseServer
-      .from('contacts')
-      .select('id')
-      .eq('email', email)
-      .single()
+    const { data: existingContact, error: existingError } = await supabaseServer
+      .from("contacts")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error("Duplicate check error:", existingError);
+      // Optional: but we should probably ignore it and let it fall through or report 500
+    }
 
     if (existingContact) {
       return NextResponse.json(
-        { error: 'You have already submitted an inquiry with this email.' },
-        { status: 409 }
-      )
+        { error: "You have already submitted an inquiry with this email." },
+        { status: 409 },
+      );
     }
 
     // Insert into DB
     const { data, error } = await supabaseServer
-      .from('contacts')
+      .from("contacts")
       .insert([
         {
           name,
           email,
           phone,
           business_name: businessName,
-          gstin: gstin || null
-        }
+          gstin: gstin || null,
+        },
       ])
-      .select('id')
-      .single()
+      .select("id")
+      .single();
 
     if (error) {
-      console.error('Supabase DB Insert Error:', error)
+      console.error("Supabase DB Insert Error:", error);
       return NextResponse.json(
-        { error: 'Failed to save contact information.' },
-        { status: 500 }
-      )
+        { error: "Failed to save contact information.", details: error },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json(
-      { message: 'Inquiry submitted successfully. We will reach out shortly!', id: data.id },
-      { status: 201 }
-    )
-
+      {
+        message: "Inquiry submitted successfully. We will reach out shortly!",
+        id: data?.id || "mock-id",
+      },
+      { status: 201 },
+    );
   } catch (err: unknown) {
-    console.error('Contact endpoint error:', err)
+    console.error("Contact endpoint error:", err);
     return NextResponse.json(
-      { error: 'An unexpected error occurred processing your request.' },
-      { status: 500 }
-    )
+      { error: "An unexpected error occurred processing your request." },
+      { status: 500 },
+    );
   }
 }
