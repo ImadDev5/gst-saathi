@@ -1,0 +1,22 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - heading "GSTSaathi Admin Panel" [level=1] [ref=e6]
+      - generic [ref=e7]:
+        - link "← Back to site" [ref=e8] [cursor=pointer]:
+          - /url: /
+        - button "Logout" [ref=e9]
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - heading "Total Contacts" [level=2] [ref=e12]
+        - paragraph [ref=e13]: "0"
+      - generic [ref=e14]:
+        - heading "Pending" [level=2] [ref=e15]
+        - paragraph [ref=e16]: "0"
+      - generic [ref=e17]:
+        - heading "Tokens Assigned" [level=2] [ref=e18]
+        - paragraph [ref=e19]: "0"
+    - generic [ref=e20]:
+      - heading "Contact Submissions" [level=2] [ref=e21]
+      - generic [ref=e23]: No contacts yet
+  - alert [ref=e24]

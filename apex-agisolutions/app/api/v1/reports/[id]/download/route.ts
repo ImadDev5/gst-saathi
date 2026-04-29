@@ -4,6 +4,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { ITCReportDocument } from "@/lib/reports/pdf-generator";
 import { generateITCExcel } from "@/lib/reports/excel-generator";
 import React from "react";
+import { verifyUserSession, authErrorResponse } from "@/lib/auth";
 
 export const maxDuration = 60;
 
@@ -17,20 +18,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const token = req.cookies.get("trial_token")?.value;
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: session } = await supabaseServer
-      .from("trial_sessions")
-      .select("id, expires_at")
-      .eq("token", token)
-      .eq("status", "ACTIVE")
-      .single();
-
-    if (!session) {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    const auth = await verifyUserSession(req);
+    if (!auth.authenticated) {
+      return authErrorResponse(auth);
     }
 
     // Fetch report
@@ -38,7 +28,7 @@ export async function GET(
       .from("reports")
       .select("*")
       .eq("id", id)
-      .eq("trial_id", session.id)
+      .eq("trial_id", auth.trialId)
       .single();
 
     if (!report) {
@@ -49,7 +39,7 @@ export async function GET(
     const { data: transactions } = await supabaseServer
       .from("transactions")
       .select("*")
-      .eq("trial_id", session.id)
+      .eq("trial_id", auth.trialId)
       .order("transaction_date", { ascending: false });
 
     const txns = transactions || [];
@@ -62,7 +52,7 @@ export async function GET(
       // Generate Excel
       const buffer = await generateITCExcel(summary, txns);
 
-      return new NextResponse(buffer, {
+      return new NextResponse(new Uint8Array(buffer), {
         status: 200,
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -72,15 +62,14 @@ export async function GET(
     }
 
     // Generate PDF
-    const pdfBuffer = await renderToBuffer(
-      React.createElement(ITCReportDocument, {
-        summary,
-        transactions: txns,
-        sessionInfo: { expiresAt: session.expires_at },
-      })
-    );
+    const pdfElement = React.createElement(ITCReportDocument as any, {
+      summary,
+      transactions: txns,
+      sessionInfo: { expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() },
+    } as any);
+    const pdfBuffer = await renderToBuffer(pdfElement as any);
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

@@ -376,6 +376,9 @@ export default function Home() {
             <a href="/signin" className="text-gray-400 transition-colors hover:text-white">
               Sign In
             </a>
+            <a href="/admin/signin" className="text-gray-600 transition-colors hover:text-amber-400 text-xs ml-2">
+              Admin
+            </a>
             <a href="#contact" className="btn-neon rounded-sm px-6 py-2 text-xs font-bold">
               Initialize
             </a>
@@ -424,6 +427,13 @@ export default function Home() {
             onClick={() => setMobileMenuOpen(false)}
           >
             Sign In
+          </a>
+          <a
+            href="/admin/signin"
+            className="font-display text-sm text-gray-600 hover:text-amber-400"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Admin
           </a>
           <a
             href="#contact"
@@ -830,6 +840,9 @@ export default function Home() {
               </a>
               <a href="#" className="hover:text-cyan-400">
                 LinkedIn
+              </a>
+              <a href="/admin/signin" className="hover:text-amber-400 text-gray-600">
+                Admin
               </a>
             </div>
           </div>

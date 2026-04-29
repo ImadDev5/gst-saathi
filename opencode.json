@@ -13,6 +13,15 @@
       "type": "remote",
       "url": "https://mcp.supabase.com/mcp",
       "oauth": {}
+    },
+    "@upstash/context7-mcp": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@upstash/context7-mcp"
+      ]
     }
+  
   }
 }

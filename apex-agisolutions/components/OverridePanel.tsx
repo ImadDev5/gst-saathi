@@ -9,6 +9,9 @@ interface Transaction {
   itc_status: string;
   block_reason: string | null;
   mapped_vendor_name: string | null;
+  action_required?: string | null;
+  confidence?: number | null;
+  rcm_type?: string | null;
 }
 
 interface Props {
@@ -100,6 +103,26 @@ export default function OverridePanel({ transaction, onClose, onSaved }: Props) 
             <div>
               <span className="text-xs text-gray-500 uppercase">Current Reason</span>
               <p className="text-sm text-red-400 mt-0.5">{transaction.block_reason}</p>
+            </div>
+          )}
+          {transaction.action_required && (
+            <div>
+              <span className="text-xs text-gray-500 uppercase">Action Required</span>
+              <p className="text-sm text-amber-400 mt-0.5">{transaction.action_required}</p>
+            </div>
+          )}
+          {transaction.confidence != null && (
+            <div>
+              <span className="text-xs text-gray-500 uppercase">Engine Confidence</span>
+              <p className="text-sm text-cyan-400 mt-0.5 font-mono">
+                {(transaction.confidence * 100).toFixed(0)}%
+              </p>
+            </div>
+          )}
+          {transaction.rcm_type && (
+            <div>
+              <span className="text-xs text-gray-500 uppercase">RCM Type</span>
+              <p className="text-sm text-purple-400 mt-0.5 font-mono">{transaction.rcm_type}</p>
             </div>
           )}
         </div>

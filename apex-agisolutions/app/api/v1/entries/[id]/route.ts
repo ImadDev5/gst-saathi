@@ -63,6 +63,7 @@ export async function PUT(
         sgst_paise: gstBreakdown.sgstPaise,
         igst_paise: gstBreakdown.igstPaise,
         total_paise: gstBreakdown.totalPaise,
+        itc_eligible: entry_type === "PURCHASE" || entry_type === "PURCHASE_RETURN",
         remarks,
         updated_at: new Date().toISOString(),
       })

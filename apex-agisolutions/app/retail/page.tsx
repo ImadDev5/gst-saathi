@@ -20,11 +20,16 @@ function fmt(paise: number): string {
 export default function RetailDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/v1/dashboard/retail-summary")
       .then(r => r.json())
-      .then(json => { if (json.success) setSummary(json.data); })
+      .then(json => {
+        if (json.success) setSummary(json.data);
+        else setError("Failed to load dashboard data");
+      })
+      .catch(() => setError("Network error — check your connection"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -44,32 +49,22 @@ export default function RetailDashboard() {
   const currentPeriod = new Date().toISOString().substring(0, 7);
 
   return (
-    <div className="min-h-screen bg-black p-4 sm:p-8 text-white">
+    <div className="p-4 sm:p-8 text-white">
       <div className="mx-auto max-w-5xl space-y-8">
         {/* Header */}
-        <header className="border-b border-gray-800 pb-4 flex items-center justify-between">
-          <div>
-            <h1 className="font-mono text-2xl tracking-tight">
-              GST<span className="text-cyan-400">Saathi</span>{" "}
-              <span className="text-sm text-gray-500 font-normal">Module B — Retail Ledger</span>
-            </h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-sm uppercase tracking-widest text-gray-500">
+            Module B — Retail Ledger
+          </h1>
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-center">
+            <p className="text-red-400 text-sm">{error}</p>
+            <button onClick={() => { setError(null); setLoading(true); window.location.reload(); }}
+              className="mt-2 text-xs text-red-400 underline">Retry</button>
           </div>
-          <div className="flex items-center gap-3">
-            <a href="/admin" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-              Admin
-            </a>
-            <button
-              onClick={async () => {
-                await fetch("/api/v1/auth/logout", { method: "POST" });
-                window.location.href = "/";
-              }}
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              Sign Out
-            </button>
-            <a href="/" className="text-xs text-gray-500 hover:text-gray-300">← Back</a>
-          </div>
-        </header>
+        )}
 
         {/* Today */}
         <section>

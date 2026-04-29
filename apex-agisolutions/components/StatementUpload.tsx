@@ -1,12 +1,27 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 interface Props {
   onUploadComplete: (statementId: string) => void;
 }
 
 const SUPPORTED_BANKS = ["HDFC", "ICICI", "SBI", "KOTAK", "AXIS", "OTHER"] as const;
+const POLL_INTERVAL_MS = 3000;
+const PROCESSING_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_POLL_ATTEMPTS = Math.ceil(PROCESSING_TIMEOUT_MS / POLL_INTERVAL_MS);
+
+function detectBankFromFilename(fileName: string): string {
+  const normalizedName = fileName.toUpperCase();
+
+  for (const bank of SUPPORTED_BANKS) {
+    if (bank !== "OTHER" && normalizedName.includes(bank)) {
+      return bank;
+    }
+  }
+
+  return "";
+}
 
 export default function StatementUpload({ onUploadComplete }: Props) {
   const [file, setFile] = useState<File | null>(null);
@@ -15,9 +30,16 @@ export default function StatementUpload({ onUploadComplete }: Props) {
   const [status, setStatus] = useState<"idle" | "uploading" | "processing" | "done" | "error">("idle");
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
-  const [statementId, setStatementId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+      }
+    };
+  }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -32,12 +54,8 @@ export default function StatementUpload({ onUploadComplete }: Props) {
     const dropped = e.dataTransfer.files[0];
     if (dropped && (dropped.name.endsWith(".csv") || dropped.type === "text/csv")) {
       setFile(dropped);
+      setBankName(detectBankFromFilename(dropped.name));
       setErrorMsg("");
-      // Auto-detect bank from filename
-      const name = dropped.name.toUpperCase();
-      for (const bank of SUPPORTED_BANKS) {
-        if (name.includes(bank)) { setBankName(bank); break; }
-      }
     } else {
       setErrorMsg("Only CSV files are supported");
     }
@@ -47,14 +65,19 @@ export default function StatementUpload({ onUploadComplete }: Props) {
     const selected = e.target.files?.[0];
     if (selected) {
       setFile(selected);
+      setBankName(detectBankFromFilename(selected.name));
       setErrorMsg("");
     }
   };
 
   const pollStatus = (stmtId: string) => {
     setStatus("processing");
-    setProgress(50);
+    setProgress(10);
     let attempts = 0;
+
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+    }
 
     pollRef.current = setInterval(async () => {
       attempts++;
@@ -71,19 +94,19 @@ export default function StatementUpload({ onUploadComplete }: Props) {
           clearInterval(pollRef.current!);
           setStatus("error");
           setErrorMsg(json.data?.error_message || "Processing failed");
-        } else {
-          setProgress(Math.min(50 + attempts * 5, 90));
+        } else if (json.data?.status === "PROCESSING") {
+          setProgress(Math.min(10 + attempts * 3, 90));
         }
       } catch {
         // Keep polling
       }
 
-      if (attempts > 60) {
+      if (attempts > MAX_POLL_ATTEMPTS) {
         clearInterval(pollRef.current!);
         setStatus("error");
-        setErrorMsg("Processing timed out — please try again");
+        setErrorMsg("Processing timed out after 15 minutes. Please refresh in a bit or try again shortly.");
       }
-    }, 3000);
+    }, POLL_INTERVAL_MS);
   };
 
   const handleUpload = async () => {
@@ -117,7 +140,6 @@ export default function StatementUpload({ onUploadComplete }: Props) {
         return;
       }
 
-      setStatementId(json.statementId);
       pollStatus(json.statementId);
     } catch (err) {
       clearTimeout(timeoutId);
@@ -153,7 +175,14 @@ export default function StatementUpload({ onUploadComplete }: Props) {
           ${status === "idle" ? "hover:border-gray-500 hover:bg-gray-900/50" : ""}
         `}
       >
-        <input ref={fileRef} type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          aria-label="Statement file"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
 
         {status === "idle" && (
           <>
@@ -210,6 +239,7 @@ export default function StatementUpload({ onUploadComplete }: Props) {
           <select
             value={bankName}
             onChange={(e) => setBankName(e.target.value)}
+            aria-label="Bank name"
             className="flex-1 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none"
           >
             <option value="">Select bank...</option>

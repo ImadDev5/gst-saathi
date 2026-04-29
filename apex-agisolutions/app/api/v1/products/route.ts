@@ -87,3 +87,44 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
+
+export async function PUT(req: NextRequest) {
+  try {
+    const token = req.cookies.get("trial_token")?.value;
+    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { data: session } = await supabaseServer
+      .from("trial_sessions").select("id").eq("token", token).eq("status", "ACTIVE").single();
+    if (!session) return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+
+    const body = await req.json();
+    const { id } = body;
+    if (!id) return NextResponse.json({ error: "Product id required" }, { status: 400 });
+
+    const { data: product, error } = await supabaseServer
+      .from("products")
+      .update({
+        product_name: body.product_name,
+        hsn_sac_code: body.hsn_sac_code,
+        default_gst_rate: body.default_gst_rate,
+        unit: body.unit,
+        default_sale_rate: body.default_sale_rate,
+        default_purchase_rate: body.default_purchase_rate,
+        is_price_sensitive: body.is_price_sensitive,
+        threshold_paise: body.threshold_paise,
+        category: body.category,
+      })
+      .eq("id", id)
+      .eq("trial_id", session.id)
+      .select()
+      .single();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
+
+    return NextResponse.json({ success: true, data: product });
+  } catch (err) {
+    console.error("Product update error:", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}

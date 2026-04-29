@@ -11,6 +11,9 @@ interface Transaction {
   gst_amount: number;
   mapped_vendor_name: string | null;
   block_reason: string | null;
+  action_required?: string | null;
+  confidence?: number | null;
+  rcm_type?: string | null;
 }
 
 interface Props {
@@ -25,6 +28,9 @@ const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> 
   CONDITIONAL: { bg: "bg-orange-500/15",  text: "text-orange-400",  label: "Conditional" },
   UNKNOWN:     { bg: "bg-gray-500/15",    text: "text-gray-400",    label: "Unknown" },
   AT_RISK:     { bg: "bg-yellow-500/15",  text: "text-yellow-400",  label: "At Risk" },
+  NEEDS_INVOICE: { bg: "bg-blue-500/15",  text: "text-blue-400",    label: "Needs Invoice" },
+  TIME_BARRED: { bg: "bg-purple-500/15",   text: "text-purple-400", label: "Time Barred" },
+  PERSONAL:    { bg: "bg-pink-500/15",    text: "text-pink-400",    label: "Personal" },
 };
 
 function formatPaise(paise: number): string {
@@ -34,6 +40,7 @@ function formatPaise(paise: number): string {
 export default function TransactionTable({ statementId, onOverride }: Props) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [filter, setFilter] = useState("");
@@ -43,6 +50,7 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     const params = new URLSearchParams({
       page: String(page),
       per_page: String(perPage),
@@ -50,10 +58,16 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
     if (statementId) params.set("statement_id", statementId);
     if (filter) params.set("itc_status", filter);
 
-    const res = await fetch(`/api/v1/transactions?${params}`);
-    const json = await res.json();
+    try {
+      const res = await fetch(`/api/v1/transactions?${params}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
 
-    if (json.success) {
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Failed to load transactions");
+      }
+
       let sorted = [...(json.data || [])];
       sorted.sort((a: Transaction, b: Transaction) => {
         const aVal = sortField === "amount" ? a.amount : new Date(a.transaction_date).getTime();
@@ -62,8 +76,18 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
       });
       setTransactions(sorted);
       setTotal(json.meta?.total || 0);
+    } catch (error) {
+      console.error("Failed to load transactions", error);
+      setTransactions([]);
+      setTotal(0);
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Failed to load transactions",
+      );
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [page, filter, statementId, sortField, sortDir]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -84,7 +108,7 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
       {/* Filter bar */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-gray-500 uppercase tracking-wider">Filter:</span>
-        {["", "ELIGIBLE", "BLOCKED", "RCM", "UNKNOWN"].map((s) => (
+        {["", "ELIGIBLE", "BLOCKED", "RCM", "CONDITIONAL", "AT_RISK", "UNKNOWN"].map((s) => (
           <button
             key={s}
             onClick={() => { setFilter(s); setPage(1); }}
@@ -131,6 +155,12 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
                   <div className="animate-pulse">Loading transactions...</div>
                 </td>
               </tr>
+            ) : loadError ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-12 text-center text-red-400/80">
+                  Failed to load transactions. Refresh and try again.
+                </td>
+              </tr>
             ) : transactions.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
@@ -161,6 +191,11 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
                       <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.bg} ${badge.text}`}>
                         {badge.label}
                       </span>
+                      {txn.confidence != null && (
+                        <span className="inline-block ml-1.5 text-[10px] text-gray-500" title={`${(txn.confidence * 100).toFixed(0)}% confidence`}>
+                          {(txn.confidence * 100).toFixed(0)}%
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <button

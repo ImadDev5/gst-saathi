@@ -51,8 +51,22 @@ export async function POST(req: NextRequest) {
       }, { status: 409 });
     }
 
-    // Determine inter-state (simplified: all entries assumed intra-state for now)
-    const isInterState = false;
+    // Determine inter-state based on GSTIN state codes
+    let isInterState = false;
+    if (party_gstin && party_gstin.length >= 2) {
+      const { data: businessContact } = await supabaseServer
+        .from("contacts")
+        .select("gstin")
+        .eq("assigned_token", token)
+        .maybeSingle();
+
+      const businessGstin = (businessContact as any)?.gstin;
+      if (businessGstin && businessGstin.length >= 2) {
+        const businessState = businessGstin.substring(0, 2);
+        const partyState = party_gstin.substring(0, 2);
+        isInterState = businessState !== partyState;
+      }
+    }
 
     // Calculate GST
     const gstBreakdown = calculateGST(

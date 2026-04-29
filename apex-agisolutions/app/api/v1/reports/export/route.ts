@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/client";
+import { verifyUserSession, authErrorResponse } from "@/lib/auth";
 
 /**
  * POST /api/v1/reports/export
@@ -8,20 +9,9 @@ import { supabaseServer } from "@/lib/supabase/client";
  */
 export async function POST(req: NextRequest) {
   try {
-    const token = req.cookies.get("trial_token")?.value;
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: session } = await supabaseServer
-      .from("trial_sessions")
-      .select("id")
-      .eq("token", token)
-      .eq("status", "ACTIVE")
-      .single();
-
-    if (!session) {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    const auth = await verifyUserSession(req);
+    if (!auth.authenticated) {
+      return authErrorResponse(auth);
     }
 
     const body = await req.json();
@@ -31,7 +21,7 @@ export async function POST(req: NextRequest) {
     let query = supabaseServer
       .from("transactions")
       .select("*")
-      .eq("trial_id", session.id);
+      .eq("trial_id", auth.trialId);
 
     if (statement_id) query = query.eq("statement_id", statement_id);
 
@@ -116,7 +106,7 @@ export async function POST(req: NextRequest) {
     const { data: report, error: reportError } = await supabaseServer
       .from("reports")
       .insert({
-        trial_id: session.id,
+        trial_id: auth.trialId,
         report_type,
         status: "COMPLETED",
         summary_json: summaryJson,

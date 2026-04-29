@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { Share2, RefreshCcw } from "lucide-react";
+import { Share2, RefreshCcw, Download } from "lucide-react";
 
 interface Summary {
   statementCount: number;
@@ -37,12 +37,23 @@ interface Transaction {
   block_reason: string | null;
 }
 
+interface StatementItem {
+  id: string;
+  filename: string;
+  bank_name: string;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+  transactionCount: number;
+}
+
 function formatPaise(paise: number): string {
   return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
 }
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [statements, setStatements] = useState<StatementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeStatement, setActiveStatement] = useState<string | null>(null);
   const [overrideTxn, setOverrideTxn] = useState<Transaction | null>(null);
@@ -51,9 +62,14 @@ export default function Dashboard() {
 
   const fetchSummary = async () => {
     try {
-      const res = await fetch("/api/v1/dashboard/summary");
-      const json = await res.json();
-      if (json.success) setSummary(json.data);
+      const [summaryRes, statementsRes] = await Promise.all([
+        fetch("/api/v1/dashboard/summary"),
+        fetch("/api/v1/statements"),
+      ]);
+      const summaryJson = await summaryRes.json();
+      const statementsJson = await statementsRes.json();
+      if (summaryJson.success) setSummary(summaryJson.data);
+      if (statementsJson.success) setStatements(statementsJson.data);
     } catch (err) {
       console.error("Failed to fetch summary:", err);
     } finally {
@@ -75,27 +91,44 @@ export default function Dashboard() {
   };
 
   const handleShareCA = async () => {
-    const token = localStorage.getItem("gstsaathi_trial_token");
-    if (!token) {
-      alert("No active session found.");
-      return;
-    }
-
     try {
       const res = await fetch("/api/v1/ca-viewer/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trialToken: token }),
       });
       const data = await res.json();
       if (data.success) {
         setCaLink(data.url);
       } else {
-        alert(data.error);
+        alert(data.error || "Failed to generate CA link");
       }
     } catch (e) {
       console.error(e);
       alert("Failed to generate link");
+    }
+  };
+
+  const handleExport = async (format: "pdf" | "excel") => {
+    try {
+      const res = await fetch("/api/v1/reports/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ format }),
+      });
+      const data = await res.json();
+      const reportId = data.data?.reportId || data.reportId;
+      if (reportId) {
+        const link = document.createElement("a");
+        link.href = `/api/v1/reports/${reportId}/download?format=${format}`;
+        link.download = `GSTSaathi_ITC_Report.${format === "excel" ? "xlsx" : "pdf"}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        alert("Export failed. No report ID returned.");
+      }
+    } catch {
+      alert("Export failed. Please try again.");
     }
   };
 
@@ -135,19 +168,14 @@ export default function Dashboard() {
     : [];
 
   return (
-    <div className="min-h-screen bg-black p-4 sm:p-8 text-white">
+    <div className="p-4 sm:p-8 text-white">
       <div className="mx-auto max-w-7xl space-y-8">
         {/* Header */}
-        <header className="border-b border-gray-800 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="font-mono text-2xl tracking-tight">
-              GST<span className="text-cyan-400">Saathi</span>{" "}
-              <span className="text-sm text-gray-500 font-normal">
-                Module A — ITC Pre-Processor
-              </span>
-            </h1>
-          </div>
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between">
+          <h1 className="text-sm uppercase tracking-widest text-gray-500">
+            Module A — ITC Pre-Processor
+          </h1>
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setRefreshKey((k) => k + 1)}
               className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded transition-colors"
@@ -161,28 +189,13 @@ export default function Dashboard() {
               <Share2 size={14} /> Share with CA
             </button>
             <button
-              onClick={async () => {
-                await fetch("/api/v1/auth/logout", { method: "POST" });
-                window.location.href = "/";
-              }}
+              onClick={() => handleExport("excel")}
               className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded transition-colors"
             >
-              Sign Out
+              <Download size={14} /> Export
             </button>
-            <a
-              href="/admin"
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              Admin
-            </a>
-            <a
-              href="/"
-              className="text-xs text-gray-500 hover:text-gray-300 ml-2 transition-colors"
-            >
-              ← Back
-            </a>
           </div>
-        </header>
+        </div>
 
         {caLink && (
           <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
@@ -287,6 +300,70 @@ export default function Dashboard() {
           </h2>
           <StatementUpload onUploadComplete={handleUploadComplete} />
         </section>
+
+        {/* Statements List */}
+        {statements.length > 0 && (
+          <section>
+            <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
+              Uploaded Statements
+            </h2>
+            <div className="rounded-xl border border-gray-800 bg-gray-900/50 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wider">
+                      <th className="text-left p-3">File</th>
+                      <th className="text-left p-3">Bank</th>
+                      <th className="text-left p-3">Status</th>
+                      <th className="text-left p-3">Transactions</th>
+                      <th className="text-left p-3">Uploaded</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statements.map((stmt) => (
+                      <tr
+                        key={stmt.id}
+                        className="border-b border-gray-800/50 hover:bg-gray-800/30"
+                      >
+                        <td className="p-3 font-mono text-xs text-gray-300 truncate max-w-[200px]">
+                          {stmt.filename}
+                        </td>
+                        <td className="p-3">
+                          <span className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-400">
+                            {stmt.bank_name}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <span
+                            className={`text-xs font-mono ${
+                              stmt.status === "COMPLETED"
+                                ? "text-emerald-400"
+                                : stmt.status === "PROCESSING"
+                                ? "text-yellow-400"
+                                : stmt.status === "FAILED"
+                                ? "text-red-400"
+                                : "text-gray-400"
+                            }`}
+                          >
+                            {stmt.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-gray-400">
+                          {stmt.transactionCount}
+                        </td>
+                        <td className="p-3 text-gray-500 text-xs">
+                          {new Date(stmt.created_at).toLocaleDateString(
+                            "en-IN"
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Transactions */}
         {(summary?.totalTransactions ?? 0) > 0 && (

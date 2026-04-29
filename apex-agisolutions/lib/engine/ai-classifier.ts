@@ -1,5 +1,13 @@
 import OpenAI from "openai";
 
+function readIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export class AIClassifier {
   private openai: OpenAI;
   public model: string;
@@ -10,8 +18,10 @@ export class AIClassifier {
         process.env.NVIDIA_NIM_BASE_URL ||
         "https://integrate.api.nvidia.com/v1",
       apiKey: process.env.NVIDIA_NIM_API_KEY,
+      timeout: readIntEnv("NVIDIA_NIM_TIMEOUT_MS", 90000), // 90 seconds keeps slow NIM tolerable without hanging the upload for ages
+      maxRetries: 0, // Avoid doubling already-slow NIM waits on timeout
     });
-    this.model = process.env.NVIDIA_NIM_MODEL || "meta/llama-3.1-70b-instruct";
+    this.model = process.env.NVIDIA_NIM_MODEL || "Qwen/Qwen2.5-72B-Instruct";
   }
 
   public async classifyBatch(
@@ -20,9 +30,13 @@ export class AIClassifier {
     if (transactions.length === 0) return [];
 
     // Skip if API key is not set to avoid breaking local dev
-    if (!process.env.NVIDIA_NIM_API_KEY) {
+    if (
+      !process.env.NVIDIA_NIM_API_KEY ||
+      process.env.DISABLE_AI_CLASSIFIER === "1" ||
+      process.env.DISABLE_AI_CLASSIFIER === "true"
+    ) {
       console.warn(
-        "NVIDIA_NIM_API_KEY is not set. Skipping AI classification.",
+        "AI classification is disabled or NVIDIA_NIM_API_KEY is not set. Skipping AI classification.",
       );
       return transactions.map((t) => ({
         id: t.id,
@@ -39,12 +53,13 @@ export class AIClassifier {
       amount: t.amount,
     }));
 
-    const response = await this.openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: "system",
-          content: `You are an expert Indian Chartered Accountant assisting with GST Input Tax Credit (ITC). Output ONLY JSON in the following format:
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert Indian Chartered Accountant assisting with GST Input Tax Credit (ITC). Output ONLY JSON in the following format:
 {
   "transactions": [
     {
@@ -62,22 +77,21 @@ Rules:
 2. Determine a clean 'mapped_vendor_name'.
 3. Determine if the transaction qualifies for ITC (ELIGIBLE), is BLOCKED under Section 17(5) (e.g. food, passenger vehicles), applies for Reverse Charge (RCM), or CONDITIONAL.
 4. Output a confidence score between 0.0 and 1.0`,
-        },
-        {
-          role: "user",
-          content: JSON.stringify(payload),
-        },
-      ],
-      response_format: { type: "json_object" },
-    });
+          },
+          {
+            role: "user",
+            content: JSON.stringify(payload),
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
 
-    try {
       const content = response.choices[0].message.content;
       if (!content) return [];
       const parsed = JSON.parse(content);
       return parsed.transactions || [];
     } catch (err) {
-      console.error("AI Parse error", err);
+      console.error("AI classification request failed", err);
       return [];
     }
   }

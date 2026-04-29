@@ -4,6 +4,8 @@ interface Vendor {
   keywords: string[];
   itc_status: string;
   default_gst_rate: number;
+  category?: string;
+  is_oidar?: boolean;
 }
 
 export class VendorMatcher {

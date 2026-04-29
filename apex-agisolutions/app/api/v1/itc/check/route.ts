@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase/client";
 
-/**
- * POST /api/v1/itc/check
- * Free-tier single expense ITC checker (rate-limited to 5/day by IP)
- * No auth required
- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -17,43 +13,114 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Parse amount from text if present (e.g., "Adobe CC ₹5664" → 5664)
-    const amountMatch = expense_text.match(/[\₹₨]?\s*([\d,]+\.?\d*)/);
+    const amountMatch = expense_text.match(/[₹₨]?\s*([\d,]+\.?\d*)/);
     const amountRupees = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, "")) : 0;
     const amountPaise = Math.round(amountRupees * 100);
 
     const text = expense_text.toUpperCase().replace(/[^A-Z0-9 ]/g, " ");
 
-    // Section 17(5) blocked categories
-    const blocked175: Record<string, string> = {
-      'SWIGGY': 'Food Delivery',
-      'ZOMATO': 'Food Delivery',
-      'FOOD': 'Food & Beverages',
-      'RESTAURANT': 'Restaurant',
-      'HOTEL FOOD': 'Outdoor Catering',
-      'GYM': 'Health Club',
-      'SALON': 'Beauty & Personal Care',
-      'INSURANCE': 'Insurance (non-business)',
-      'CAR FUEL': 'Motor Vehicle Fuel',
-      'PETROL': 'Motor Vehicle Fuel',
-      'DIESEL': 'Motor Vehicle Fuel',
+    // Load vendors from DB for dynamic matching
+    let vendors: any[] = [];
+    try {
+      const { data } = await supabaseServer
+        .from("vendors")
+        .select("id, name, category, keywords, itc_status, default_gst_rate, is_oidar");
+      vendors = data || [];
+    } catch {
+      // DB unavailable — use built-in fallback below
+    }
+
+    // Match against vendor keywords (same logic as Inngest pipeline)
+    for (const v of vendors) {
+      const keywords = v.keywords || [];
+      for (const kw of keywords) {
+        if (text.includes(kw.toUpperCase())) {
+          const gstRate = v.default_gst_rate || 18;
+          const gstAmount = amountPaise > 0 ? Math.round(amountPaise * gstRate / (100 + gstRate)) : 0;
+          const isOidar = v.category?.toUpperCase().includes("OIDAR") || v.is_oidar;
+
+          if (v.itc_status === "BLOCKED") {
+            return NextResponse.json({
+              success: true,
+              data: {
+                vendor: v.name,
+                category: v.category || "Unknown",
+                gst_rate: gstRate,
+                gst_amount_paise: gstAmount,
+                itc_status: "BLOCKED",
+                itc_status_label: `Blocked — Matched Vendor: ${v.name} under S.17(5)`,
+                block_reason: `Matched Vendor configured as Blocked Credit under S.17(5)`,
+                rcm_applicable: false,
+                action: "Do not claim ITC — vendor configured as blocked",
+                confidence: 0.95,
+              },
+            });
+          }
+
+          if (isOidar || v.itc_status === "RCM") {
+            return NextResponse.json({
+              success: true,
+              data: {
+                vendor: v.name,
+                category: v.category || "Foreign Digital Service",
+                gst_rate: gstRate,
+                gst_amount_paise: gstAmount,
+                itc_status: "RCM",
+                itc_status_label: "RCM — You must pay GST under Reverse Charge",
+                block_reason: null,
+                rcm_applicable: true,
+                rcm_amount_paise: gstAmount,
+                action: `Pay ${gstRate}% GST under RCM. Claim ITC in the same month's GSTR-3B.`,
+                confidence: 0.9,
+              },
+            });
+          }
+
+          return NextResponse.json({
+            success: true,
+            data: {
+              vendor: v.name,
+              category: v.category || "Business",
+              gst_rate: gstRate,
+              gst_amount_paise: gstAmount,
+              itc_status: "ELIGIBLE",
+              itc_status_label: "Eligible — get a B2B invoice with your GSTIN",
+              block_reason: null,
+              rcm_applicable: false,
+              action: `Ensure you have a B2B invoice with your GSTIN from ${v.name}`,
+              confidence: 0.85,
+            },
+          });
+        }
+      }
+    }
+
+    // Built-in fallback matching (when DB unavailable)
+    const blocked175: Record<string, { category: string; rate: number }> = {
+      'SWIGGY': { category: 'Food Delivery', rate: 5 },
+      'ZOMATO': { category: 'Food Delivery', rate: 5 },
+      'FOOD': { category: 'Food & Beverages', rate: 5 },
+      'RESTAURANT': { category: 'Restaurant', rate: 5 },
+      'INSURANCE': { category: 'Insurance', rate: 18 },
+      'GYM': { category: 'Health Club', rate: 18 },
+      'SALON': { category: 'Beauty', rate: 18 },
+      'UBER': { category: 'Transport', rate: 5 },
+      'OLA': { category: 'Transport', rate: 5 },
     };
 
-    // Check blocked first
-    for (const [keyword, category] of Object.entries(blocked175)) {
+    for (const [keyword, info] of Object.entries(blocked175)) {
       if (text.includes(keyword)) {
-        const gstRate = keyword.includes('FOOD') || keyword.includes('SWIGGY') || keyword.includes('ZOMATO') ? 5 : 18;
-        const gstAmount = amountPaise > 0 ? Math.round(amountPaise * gstRate / (100 + gstRate)) : 0;
+        const gstAmount = amountPaise > 0 ? Math.round(amountPaise * info.rate / (100 + info.rate)) : 0;
         return NextResponse.json({
           success: true,
           data: {
             vendor: keyword.charAt(0) + keyword.slice(1).toLowerCase(),
-            category,
-            gst_rate: gstRate,
+            category: info.category,
+            gst_rate: info.rate,
             gst_amount_paise: gstAmount,
             itc_status: "BLOCKED",
-            itc_status_label: `Blocked — Section 17(5) ${category}`,
-            block_reason: `Section 17(5) — ${category}`,
+            itc_status_label: `Blocked — Section 17(5) ${info.category}`,
+            block_reason: `Section 17(5) — ${info.category}`,
             rcm_applicable: false,
             action: "Do not claim ITC — this is a blocked credit under Section 17(5)",
             confidence: 0.95,
@@ -62,25 +129,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // OIDAR / RCM vendors
-    const oidarVendors: Record<string, { name: string; sac: string }> = {
-      'GOOGLE ADS': { name: 'Google Ads', sac: '998314' },
-      'FACEBOOK ADS': { name: 'Meta Ads', sac: '998314' },
-      'META ADS': { name: 'Meta Ads', sac: '998314' },
-      'LINKEDIN ADS': { name: 'LinkedIn Ads', sac: '998314' },
-      'AWS': { name: 'Amazon Web Services', sac: '998315' },
-      'AZURE': { name: 'Microsoft Azure', sac: '998315' },
-      'GOOGLE CLOUD': { name: 'Google Cloud', sac: '998315' },
-      'ZOOM': { name: 'Zoom Video', sac: '998314' },
-      'SLACK': { name: 'Slack', sac: '998314' },
-      'FIGMA': { name: 'Figma', sac: '998314' },
-      'NOTION': { name: 'Notion', sac: '998314' },
-      'ADOBE': { name: 'Adobe', sac: '998314' },
-      'CANVA': { name: 'Canva', sac: '998314' },
-      'GITHUB': { name: 'GitHub', sac: '998314' },
+    const oidarFallback: Record<string, { name: string }> = {
+      'GOOGLE ADS': { name: 'Google Ads' },
+      'FACEBOOK ADS': { name: 'Meta Ads' },
+      'AWS': { name: 'Amazon Web Services' },
+      'ADOBE': { name: 'Adobe' },
+      'MICROSOFT': { name: 'Microsoft' },
+      'ZOOM': { name: 'Zoom' },
+      'SLACK': { name: 'Slack' },
+      'GITHUB': { name: 'GitHub' },
+      'NETFLIX': { name: 'Netflix' },
+      'SPOTIFY': { name: 'Spotify' },
     };
 
-    for (const [keyword, vendor] of Object.entries(oidarVendors)) {
+    for (const [keyword, vendor] of Object.entries(oidarFallback)) {
       if (text.includes(keyword)) {
         const gstAmount = amountPaise > 0 ? Math.round(amountPaise * 18 / 118) : 0;
         return NextResponse.json({
@@ -88,7 +150,6 @@ export async function POST(req: NextRequest) {
           data: {
             vendor: vendor.name,
             category: "Foreign Digital Service (OIDAR)",
-            hsn_sac: vendor.sac,
             gst_rate: 18,
             gst_amount_paise: gstAmount,
             itc_status: "RCM",
@@ -96,27 +157,24 @@ export async function POST(req: NextRequest) {
             block_reason: null,
             rcm_applicable: true,
             rcm_amount_paise: gstAmount,
-            action: `Pay 18% IGST under RCM. Claim ITC in the same month's GSTR-3B.`,
+            action: "Pay 18% IGST under RCM. Claim ITC in the same month's GSTR-3B.",
             confidence: 0.92,
           },
         });
       }
     }
 
-    // Common eligible vendors
-    const eligibleVendors: Record<string, { name: string; rate: number; sac: string; category: string }> = {
-      'INTERNET': { name: 'Internet Service', rate: 18, sac: '998422', category: 'Telecom' },
-      'AIRTEL': { name: 'Airtel', rate: 18, sac: '998422', category: 'Telecom' },
-      'JIO': { name: 'Jio', rate: 18, sac: '998422', category: 'Telecom' },
-      'VODAFONE': { name: 'Vodafone', rate: 18, sac: '998422', category: 'Telecom' },
-      'RENT': { name: 'Office Rent', rate: 18, sac: '997212', category: 'Rental' },
-      'OFFICE': { name: 'Office Supplies', rate: 18, sac: '998599', category: 'Office' },
-      'STATIONERY': { name: 'Stationery', rate: 12, sac: '482010', category: 'Office' },
-      'COURIER': { name: 'Courier Service', rate: 18, sac: '996812', category: 'Logistics' },
-      'ELECTRICITY': { name: 'Electricity', rate: 18, sac: '996511', category: 'Utilities' },
+    const eligibleFallback: Record<string, { name: string; rate: number; category: string }> = {
+      'INTERNET': { name: 'Internet Service', rate: 18, category: 'Telecom' },
+      'AIRTEL': { name: 'Airtel', rate: 18, category: 'Telecom' },
+      'RENT': { name: 'Office Rent', rate: 18, category: 'Rental' },
+      'COURIER': { name: 'Courier Service', rate: 18, category: 'Logistics' },
+      'ELECTRICITY': { name: 'Electricity', rate: 18, category: 'Utilities' },
+      'FLIPKART': { name: 'Flipkart', rate: 18, category: 'E-Commerce' },
+      'OFFICE': { name: 'Office Supplies', rate: 18, category: 'Office' },
     };
 
-    for (const [keyword, vendor] of Object.entries(eligibleVendors)) {
+    for (const [keyword, vendor] of Object.entries(eligibleFallback)) {
       if (text.includes(keyword)) {
         const gstAmount = amountPaise > 0 ? Math.round(amountPaise * vendor.rate / (100 + vendor.rate)) : 0;
         return NextResponse.json({
@@ -124,7 +182,6 @@ export async function POST(req: NextRequest) {
           data: {
             vendor: vendor.name,
             category: vendor.category,
-            hsn_sac: vendor.sac,
             gst_rate: vendor.rate,
             gst_amount_paise: gstAmount,
             itc_status: "ELIGIBLE",
@@ -138,7 +195,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Unknown — couldn't match
     return NextResponse.json({
       success: true,
       data: {
@@ -147,10 +203,10 @@ export async function POST(req: NextRequest) {
         gst_rate: 18,
         gst_amount_paise: amountPaise > 0 ? Math.round(amountPaise * 18 / 118) : 0,
         itc_status: "UNKNOWN",
-        itc_status_label: "Could not determine — upload a full statement for better results",
+        itc_status_label: "Could not determine — upload a full bank statement for detailed analysis",
         block_reason: null,
         rcm_applicable: false,
-        action: "Upload your bank statement CSV for detailed analysis",
+        action: "Upload your bank statement CSV for comprehensive vendor matching",
         confidence: 0.3,
       },
     });

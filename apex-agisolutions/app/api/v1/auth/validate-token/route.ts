@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/client";
 
+/**
+ * POST /api/v1/auth/validate-token
+ * Validates a trial token and sets both cookies:
+ *   - user_session (new role-based session)
+ *   - trial_token (backward compatibility)
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -13,6 +19,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check trial_sessions table
     const { data: session, error } = await supabaseServer
       .from("trial_sessions")
       .select("id, status, expires_at")
@@ -40,11 +47,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Create/update user_sessions entry for role-based access
+    await supabaseServer
+      .from("user_sessions")
+      .upsert(
+        {
+          token,
+          role: "USER",
+          status: "ACTIVE",
+          expires_at: session.expires_at,
+          trial_session_id: session.id,
+          metadata: { source: "trial_token_migration" },
+        },
+        { onConflict: "token" }
+      );
+
     const response = NextResponse.json({
       success: true,
       redirect: "/dashboard",
     });
 
+    // Set new user_session cookie (role-based)
+    response.cookies.set("user_session", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+
+    // Keep legacy trial_token for backward compatibility
     response.cookies.set("trial_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
