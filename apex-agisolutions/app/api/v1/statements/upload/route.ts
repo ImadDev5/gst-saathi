@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const file = formData.get("file") as File;
     const bankName = formData.get("bankName") as string;
-    const trialToken = req.cookies.get("trial_token")?.value;
+    const trialToken = req.cookies.get("trial_token")?.value || req.cookies.get("user_session")?.value;
 
     if (!file || !bankName || !trialToken) {
       return NextResponse.json(
@@ -120,21 +120,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Step 1: Validate Trial Token
+    // Step 1: Validate Session Token (trial_token or user_session)
+    let trialId: string;
+
+    // Try trial_sessions first (legacy)
     const { data: trialSession, error: trialError } = await supabaseServer
       .from("trial_sessions")
       .select("id, status")
       .eq("token", trialToken)
       .single();
 
-    if (trialError || !trialSession || trialSession.status !== "ACTIVE") {
-      return NextResponse.json(
-        { error: "Invalid or expired trial token" },
-        { status: 401 },
-      );
-    }
+    if (trialSession && trialSession.status === "ACTIVE") {
+      trialId = trialSession.id;
+    } else {
+      // Try user_sessions (new role-based system)
+      const { data: userSession, error: userError } = await supabaseServer
+        .from("user_sessions")
+        .select("id, trial_session_id, status")
+        .eq("token", trialToken)
+        .single();
 
-    const trialId = trialSession.id;
+      if (userError || !userSession || userSession.status !== "ACTIVE") {
+        return NextResponse.json(
+          { error: "Invalid or expired session token" },
+          { status: 401 },
+        );
+      }
+
+      trialId = userSession.trial_session_id || userSession.id;
+    }
 
     // Step 2: Upload File to Supabase Storage
     const storagePath = `${trialId}/${crypto.randomUUID()}.${fileExt}`;

@@ -216,102 +216,112 @@ export async function runStatementPipeline(
     },
   );
 
-  const finalTransactions: ClassifiedTransaction[] = await step.run(
-    "tier2-ai-classify",
-    async () => {
+  // Tier 2: AI classification — process each batch as its own checkpointed step
+  // This ensures each batch survives Vercel Hobby's 10s function timeout
+  let finalTransactions: ClassifiedTransaction[] = tier1Results;
+
+  const { unmatched, batchSize, maxAITotal, rateLimitDelayMs, maxEmptyBatches } =
+    await step.run("tier2-ai-config", async () => {
       const unmatched = tier1Results.filter(
         (t) => t.itc_status === "UNKNOWN" && t.transaction_type === "DEBIT",
       );
+      return {
+        unmatched,
+        batchSize: readPositiveIntEnv("NVIDIA_NIM_BATCH_SIZE", 20),
+        maxAITotal: readPositiveIntEnv("NVIDIA_NIM_MAX_AI_TOTAL", 1000),
+        rateLimitDelayMs: readPositiveIntEnv(
+          "NVIDIA_NIM_RATE_LIMIT_DELAY_MS",
+          2500,
+        ),
+        maxEmptyBatches: readPositiveIntEnv(
+          "NVIDIA_NIM_MAX_EMPTY_BATCHES",
+          1,
+        ),
+      };
+    });
 
-      if (unmatched.length === 0) return tier1Results;
+  if (unmatched.length > 0) {
+    let aiClassified = 0;
+    let emptyBatchCount = 0;
+    const totalBatches = Math.ceil(unmatched.length / batchSize);
 
-      const aiClassifier = new AIClassifier();
-      const batchSize = readPositiveIntEnv("NVIDIA_NIM_BATCH_SIZE", 20);
-      const maxAITotal = readPositiveIntEnv("NVIDIA_NIM_MAX_AI_TOTAL", 1000);
-      const rateLimitDelayMs = readPositiveIntEnv(
-        "NVIDIA_NIM_RATE_LIMIT_DELAY_MS",
-        2500,
-      );
-      const maxEmptyBatches = readPositiveIntEnv(
-        "NVIDIA_NIM_MAX_EMPTY_BATCHES",
-        1,
-      );
-      let aiClassified = 0;
-      let emptyBatchCount = 0;
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      if (aiClassified >= maxAITotal) break;
 
-      for (
-        let i = 0;
-        i < unmatched.length && aiClassified < maxAITotal;
-        i += batchSize
-      ) {
-        const batch = unmatched.slice(i, i + batchSize).map((t) => ({
-          id: t.id,
-          description: t.description,
-          amount: t.amount / 100,
-        }));
+      const start = batchIndex * batchSize;
+      const batch = unmatched.slice(start, start + batchSize);
 
-        const aiResults = await aiClassifier.classifyBatch(batch);
-
-        if (aiResults.length === 0) {
-          emptyBatchCount++;
-          console.warn(
-            `AI classification returned no rows for batch ${Math.floor(i / batchSize) + 1}; leaving batch as UNKNOWN.`,
+      const aiResults = await step.run(
+        `ai-batch-${batchIndex + 1}`,
+        async () => {
+          const aiClassifier = new AIClassifier();
+          return aiClassifier.classifyBatch(
+            batch.map((t) => ({
+              id: t.id,
+              description: t.description,
+              amount: t.amount / 100,
+            })),
           );
+        },
+      );
 
-          if (emptyBatchCount >= maxEmptyBatches) {
-            console.warn(
-              "Stopping further AI classification after repeated empty/timed-out NIM batches.",
-            );
-            break;
-          }
-        } else {
-          emptyBatchCount = 0;
+      if (aiResults.length === 0) {
+        emptyBatchCount++;
+        console.warn(
+          `AI batch ${batchIndex + 1} returned empty; leaving as UNKNOWN.`,
+        );
+        if (emptyBatchCount >= maxEmptyBatches) {
+          console.warn("Stopping AI after repeated empty batches.");
+          break;
         }
+      } else {
+        emptyBatchCount = 0;
+      }
 
-        for (const aiMatch of aiResults) {
-          const txn = tier1Results.find((t) => t.id === aiMatch.id);
-          if (!txn) continue;
+      // Merge AI results into the main results array
+      for (const aiMatch of aiResults) {
+        const txn = finalTransactions.find((t) => t.id === aiMatch.id);
+        if (!txn) continue;
 
-          const isConfident =
-            aiMatch.itc_confidence !== undefined &&
-            aiMatch.itc_confidence >= 0.8;
+        const isConfident =
+          aiMatch.itc_confidence !== undefined &&
+          aiMatch.itc_confidence >= 0.8;
+        if (!isConfident) continue;
 
-          if (!isConfident) continue;
+        const validStatuses = [
+          "ELIGIBLE",
+          "BLOCKED",
+          "CONDITIONAL",
+          "RCM",
+          "UNKNOWN",
+        ];
+        const aiStatus = validStatuses.includes(aiMatch.itc_status)
+          ? aiMatch.itc_status
+          : "UNKNOWN";
 
-          const validStatuses = [
-            "ELIGIBLE",
-            "BLOCKED",
-            "CONDITIONAL",
-            "RCM",
-            "UNKNOWN",
-          ];
-          const aiStatus = validStatuses.includes(aiMatch.itc_status)
-            ? aiMatch.itc_status
-            : "UNKNOWN";
+        txn.itc_status = aiStatus;
+        txn.mapped_vendor_name =
+          aiMatch.mapped_vendor_name || txn.mapped_vendor_name;
+        txn.block_reason = aiMatch.block_reason || txn.block_reason;
+        txn.confidence = aiMatch.itc_confidence;
 
-          txn.itc_status = aiStatus;
-          txn.mapped_vendor_name =
-            aiMatch.mapped_vendor_name || txn.mapped_vendor_name;
-          txn.block_reason = aiMatch.block_reason || txn.block_reason;
-          txn.confidence = aiMatch.itc_confidence;
-
-          if (aiStatus === "ELIGIBLE" || aiStatus === "BLOCKED") {
-            txn.gst_amount = reverseCalculateGST(txn.amount, 18);
-          }
-        }
-
-        aiClassified += batch.length;
-
-        if (aiClassified < maxAITotal) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, rateLimitDelayMs),
-          );
+        if (aiStatus === "ELIGIBLE" || aiStatus === "BLOCKED") {
+          txn.gst_amount = reverseCalculateGST(txn.amount, 18);
         }
       }
 
-      return tier1Results;
-    },
-  );
+      aiClassified += batch.length;
+
+      // Rate limit delay between batches (except after the last one)
+      if (aiClassified < maxAITotal && batchIndex < totalBatches - 1) {
+        await step.run(
+          `ai-delay-${batchIndex + 1}`,
+          async () =>
+            new Promise((resolve) => setTimeout(resolve, rateLimitDelayMs)),
+        );
+      }
+    }
+  }
 
   const existsBeforeInsert = await step.run(
     "ensure-statement-before-insert",
