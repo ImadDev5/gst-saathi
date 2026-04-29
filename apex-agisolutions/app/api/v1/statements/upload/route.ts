@@ -1,74 +1,9 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/client";
 import { inngest } from "@/inngest/client";
-import { parseCSV, runStatementPipeline } from "@/inngest/functions";
-import { dedupHash } from "@/lib/dedup-hash";
+import { runStatementPipeline } from "@/inngest/functions";
 
-async function processUploadedCsvSynchronously(args: {
-  statementId: string;
-  trialId: string;
-  fileBuffer: ArrayBuffer;
-}) {
-  const transactions = parseCSV(
-    Buffer.from(args.fileBuffer),
-    args.statementId,
-    args.trialId,
-  );
-
-  const rows = transactions.map(({ id: _id, ...txn }) => ({
-    ...txn,
-    vendor_id: null,
-    mapped_vendor_name: null,
-    itc_status: "UNKNOWN",
-    gst_amount: 0,
-    block_reason: null,
-    action_required: txn.transaction_type === "DEBIT" ? "Review classification" : null,
-    confidence: 0.5,
-    rcm_type: null,
-    dedupe_hash: dedupHash(
-      args.statementId,
-      txn.transaction_date,
-      txn.description,
-      txn.amount,
-    ),
-  }));
-
-  if (rows.length > 0) {
-    const { error } = await supabaseServer
-      .from("transactions")
-      .upsert(rows, {
-        onConflict: "dedupe_hash",
-        ignoreDuplicates: true,
-      });
-
-    if (error) {
-      throw new Error(`Failed to insert parsed transactions: ${error.message}`);
-    }
-  }
-
-  const { error: statementError } = await supabaseServer
-    .from("statements")
-    .update({
-      status: "COMPLETED",
-      error_message: null,
-    })
-    .eq("id", args.statementId);
-
-  if (statementError) {
-    throw new Error(`Failed to update statement status: ${statementError.message}`);
-  }
-}
-
-function shouldUseLocalAsyncProcessing() {
-  return (
-    process.env.NODE_ENV !== "production" &&
-    Boolean(process.env.INNGEST_DEV) &&
-    process.env.SYNC_STATEMENT_PROCESSING !== "1" &&
-    process.env.LOCAL_ASYNC_STATEMENT_PROCESSING !== "0"
-  );
-}
-
-function processUploadedStatementLocally(args: {
+function processUploadedStatementInBackground(args: {
   statementId: string;
   storagePath: string;
   trialId: string;
@@ -82,9 +17,9 @@ function processUploadedStatementLocally(args: {
       const message =
         processingError instanceof Error
           ? processingError.message
-          : "Local async statement processing failed";
+          : "Background statement processing failed";
 
-      console.error("Local async statement processing failed:", processingError);
+      console.error("Background statement processing failed:", processingError);
 
       await supabaseServer
         .from("statements")
@@ -192,34 +127,11 @@ export async function POST(req: NextRequest) {
     const statementId = statement.id;
 
     // Step 4: Dispatch processing
-    if (process.env.SYNC_STATEMENT_PROCESSING === "1" && fileExt === "csv") {
-      try {
-        await processUploadedCsvSynchronously({
-          statementId,
-          trialId,
-          fileBuffer,
-        });
-      } catch (processingError) {
-        const message =
-          processingError instanceof Error
-            ? processingError.message
-            : "Synchronous statement processing failed";
-
-        await supabaseServer
-          .from("statements")
-          .update({
-            status: "FAILED",
-            error_message: message,
-          })
-          .eq("id", statementId);
-
-        return NextResponse.json(
-          { error: message },
-          { status: 500 },
-        );
-      }
-    } else if (shouldUseLocalAsyncProcessing()) {
-      processUploadedStatementLocally({
+    // CSV: run full pipeline (parse + vendor-match + AI classify) via after()
+    // so it works on Vercel Hobby without requiring Inngest Cloud.
+    // PDF: heavier processing, still route through Inngest if available.
+    if (fileExt === "csv") {
+      processUploadedStatementInBackground({
         statementId,
         storagePath,
         trialId,
