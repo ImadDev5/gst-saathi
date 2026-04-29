@@ -39,6 +39,7 @@ interface UploadedStatementEventData {
   trialId: string;
   filename: string;
   bankName: string;
+  fileBuffer?: Buffer; // Optional: if provided, skip storage download
 }
 
 interface StepRunner {
@@ -77,7 +78,7 @@ export async function runStatementPipeline(
   eventData: UploadedStatementEventData,
   step: StepRunner = inlineStepRunner,
 ) {
-  const { statementId, storagePath, trialId, filename } = eventData;
+  const { statementId, storagePath, trialId, filename, fileBuffer: providedBuffer } = eventData;
 
   const existsAtStart = await step.run("ensure-statement-exists", async () =>
     statementExists(statementId),
@@ -93,23 +94,35 @@ export async function runStatementPipeline(
     };
   }
 
-  const { fileBuffer, isPDF } = await step.run("download-file", async () => {
-    const { data, error } = await supabaseServer.storage
-      .from("statements")
-      .download(storagePath);
+  let fileBuffer: string;
+  let isPDF: boolean;
 
-    if (error) {
-      throw new Error(
-        `Failed to download statement ${storagePath}: ${error.message}`,
-      );
-    }
+  if (providedBuffer) {
+    // Use provided buffer directly (CSV upload from API route)
+    fileBuffer = providedBuffer.toString("base64");
+    isPDF = false;
+  } else {
+    // Download from storage (Inngest / background processing)
+    const downloadResult = await step.run("download-file", async () => {
+      const { data, error } = await supabaseServer.storage
+        .from("statements")
+        .download(storagePath);
 
-    const buffer = Buffer.from(await data.arrayBuffer());
-    return {
-      fileBuffer: buffer.toString("base64"),
-      isPDF: storagePath.toLowerCase().endsWith(".pdf"),
-    };
-  });
+      if (error) {
+        throw new Error(
+          `Failed to download statement ${storagePath}: ${error.message}`,
+        );
+      }
+
+      const buffer = Buffer.from(await data.arrayBuffer());
+      return {
+        fileBuffer: buffer.toString("base64"),
+        isPDF: storagePath.toLowerCase().endsWith(".pdf"),
+      };
+    });
+    fileBuffer = downloadResult.fileBuffer;
+    isPDF = downloadResult.isPDF;
+  }
 
   const transactions: ParsedTransaction[] = await step.run(
     "parse-and-normalize",

@@ -1,34 +1,22 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/client";
 import { inngest } from "@/inngest/client";
 import { runStatementPipeline } from "@/inngest/functions";
 
-function processUploadedStatementInBackground(args: {
+async function processUploadedCsvWithAI(args: {
   statementId: string;
-  storagePath: string;
   trialId: string;
   filename: string;
   bankName: string;
+  fileBuffer: ArrayBuffer;
 }) {
-  after(async () => {
-    try {
-      await runStatementPipeline(args);
-    } catch (processingError) {
-      const message =
-        processingError instanceof Error
-          ? processingError.message
-          : "Background statement processing failed";
-
-      console.error("Background statement processing failed:", processingError);
-
-      await supabaseServer
-        .from("statements")
-        .update({
-          status: "FAILED",
-          error_message: message,
-        })
-        .eq("id", args.statementId);
-    }
+  await runStatementPipeline({
+    statementId: args.statementId,
+    storagePath: "", // Not used when fileBuffer is provided
+    trialId: args.trialId,
+    filename: args.filename,
+    bankName: args.bankName,
+    fileBuffer: Buffer.from(args.fileBuffer),
   });
 }
 
@@ -127,17 +115,40 @@ export async function POST(req: NextRequest) {
     const statementId = statement.id;
 
     // Step 4: Dispatch processing
-    // CSV: run full pipeline (parse + vendor-match + AI classify) via after()
-    // so it works on Vercel Hobby without requiring Inngest Cloud.
-    // PDF: heavier processing, still route through Inngest if available.
+    // CSV: run full pipeline (parse + vendor-match + AI classify) synchronously
+    // with direct buffer access to save time. This fits within Vercel Hobby's
+    // 10s limit when batch size is large enough (e.g. 100-200).
+    // PDF: route through Inngest for heavier processing.
     if (fileExt === "csv") {
-      processUploadedStatementInBackground({
-        statementId,
-        storagePath,
-        trialId,
-        filename: file.name,
-        bankName,
-      });
+      try {
+        await processUploadedCsvWithAI({
+          statementId,
+          trialId,
+          filename: file.name,
+          bankName,
+          fileBuffer,
+        });
+      } catch (processingError) {
+        const message =
+          processingError instanceof Error
+            ? processingError.message
+            : "Statement processing failed";
+
+        console.error("CSV processing error:", processingError);
+
+        await supabaseServer
+          .from("statements")
+          .update({
+            status: "FAILED",
+            error_message: message,
+          })
+          .eq("id", statementId);
+
+        return NextResponse.json(
+          { error: message },
+          { status: 500 },
+        );
+      }
     } else {
       await inngest.send({
         name: "statements/uploaded",
