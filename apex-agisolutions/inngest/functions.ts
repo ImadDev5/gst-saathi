@@ -42,6 +42,19 @@ interface UploadedStatementEventData {
   fileBuffer?: Buffer; // Optional: if provided, skip storage download
 }
 
+interface StatementAITaskTransaction {
+  id: string;
+  description: string;
+  amount: number;
+}
+
+interface StatementAIEventData {
+  statementId: string;
+  trialId: string;
+  cursor?: number;
+  transactions?: StatementAITaskTransaction[];
+}
+
 interface StepRunner {
   run<T>(name: string, fn: () => Promise<T>): Promise<T>;
 }
@@ -682,6 +695,210 @@ function parsePDF(
     },
   ];
 }
+
+// AI-only classification function for CSV uploads.
+// Transactions are already parsed + vendor-matched + inserted by the upload handler.
+// This function ONLY does AI classification on UNKNOWN DEBIT transactions in batches.
+export const processStatementAI = inngest.createFunction(
+  {
+    id: "process-statement-ai",
+    retries: 2,
+    concurrency: 3,
+    triggers: [{ event: "statements/need-ai" }],
+    onFailure: async ({ event, error }) => {
+      const statementId = event.data.event.data.statementId;
+      await supabaseServer
+        .from("statements")
+        .update({ status: "FAILED", error_message: error.message })
+        .eq("id", statementId);
+    },
+  },
+  async ({
+    event,
+    step,
+  }: {
+    event: { data: StatementAIEventData };
+    step: StepRunner;
+  }) => {
+    const { statementId, trialId } = event.data;
+    const batchSize = readPositiveIntEnv("NVIDIA_NIM_BATCH_SIZE", 5);
+    const maxAITotal = readPositiveIntEnv("NVIDIA_NIM_MAX_AI_TOTAL", 1000);
+
+    // Step 1: Verify statement exists and build a stable worklist once.
+    const pendingTransactions =
+      event.data.transactions ||
+      (await step.run("fetch-unmatched", async () => {
+        const { data: stmt } = await supabaseServer
+          .from("statements")
+          .select("id, status")
+          .eq("id", statementId)
+          .maybeSingle();
+
+        if (!stmt) {
+          throw new Error(`Statement ${statementId} not found`);
+        }
+
+        const { data: txns, error } = await supabaseServer
+          .from("transactions")
+          .select("id, description, amount")
+          .eq("statement_id", statementId)
+          .eq("itc_status", "UNKNOWN")
+          .eq("transaction_type", "DEBIT")
+          .order("id", { ascending: true })
+          .limit(maxAITotal);
+
+        if (error) {
+          throw new Error(`Failed to fetch unmatched txns: ${error.message}`);
+        }
+
+        return txns || [];
+      }));
+
+    if (pendingTransactions.length === 0) {
+      await step.run("mark-completed-no-ai", async () => {
+        await supabaseServer
+          .from("statements")
+          .update({ status: "COMPLETED", error_message: null })
+          .eq("id", statementId);
+      });
+      return { statementId, aiClassified: 0, skipped: true };
+    }
+
+    const cursor = event.data.cursor || 0;
+    const batch = pendingTransactions.slice(cursor, cursor + batchSize);
+
+    if (batch.length === 0) {
+      await step.run("mark-completed-empty-batch", async () => {
+        await supabaseServer
+          .from("statements")
+          .update({ status: "COMPLETED", error_message: null })
+          .eq("id", statementId);
+      });
+      return { statementId, aiClassified: 0, completed: true };
+    }
+
+    const exists = await step.run("ensure-statement-exists", async () => {
+      const { data: stmt } = await supabaseServer
+        .from("statements")
+        .select("id, status")
+        .eq("id", statementId)
+        .maybeSingle();
+
+      if (!stmt) {
+        throw new Error(`Statement ${statementId} not found`);
+      }
+      return true;
+    });
+
+    if (!exists) {
+      return { statementId, aiClassified: 0, skipped: true };
+    }
+
+    const aiResults = await step.run(
+      `ai-batch-${cursor + 1}-${cursor + batch.length}`,
+      async () => {
+        const aiClassifier = new AIClassifier();
+        return aiClassifier.classifyBatch(
+          batch.map((t) => ({
+            id: t.id,
+            description: t.description,
+            amount: t.amount / 100,
+          })),
+        );
+      },
+    );
+
+    if (aiResults.length === 0) {
+      console.warn(
+        `AI batch ${cursor + 1}-${cursor + batch.length} returned empty; leaving transactions as UNKNOWN.`,
+      );
+    } else {
+      await step.run(
+        `update-batch-${cursor + 1}-${cursor + batch.length}`,
+        async () => {
+          for (const aiMatch of aiResults) {
+            const txn = batch.find((t) => t.id === aiMatch.id);
+            if (
+              !txn ||
+              aiMatch.itc_confidence === undefined ||
+              aiMatch.itc_confidence < 0.8
+            ) {
+              continue;
+            }
+
+            const validStatuses = [
+              "ELIGIBLE",
+              "BLOCKED",
+              "CONDITIONAL",
+              "RCM",
+              "UNKNOWN",
+            ];
+            const aiStatus = validStatuses.includes(aiMatch.itc_status)
+              ? aiMatch.itc_status
+              : "UNKNOWN";
+
+            const updates: any = {
+              itc_status: aiStatus,
+              mapped_vendor_name: aiMatch.mapped_vendor_name || null,
+              block_reason: aiMatch.block_reason || null,
+              confidence: aiMatch.itc_confidence,
+              action_required:
+                aiStatus === "ELIGIBLE"
+                  ? "Verify in GSTR-2B portal"
+                  : aiStatus === "RCM"
+                    ? "Pay RCM tax; claim ITC in same month"
+                    : null,
+            };
+
+            if (aiStatus === "ELIGIBLE" || aiStatus === "BLOCKED") {
+              updates.gst_amount = reverseCalculateGST(txn.amount, 18);
+            }
+
+            await supabaseServer
+              .from("transactions")
+              .update(updates)
+              .eq("id", aiMatch.id);
+          }
+        },
+      );
+    }
+
+    const nextCursor = cursor + batch.length;
+    if (nextCursor < pendingTransactions.length) {
+      await step.run(`queue-next-batch-${nextCursor}`, async () => {
+        await inngest.send({
+          name: "statements/need-ai",
+          data: {
+            statementId,
+            trialId,
+            cursor: nextCursor,
+            transactions: pendingTransactions,
+          },
+        });
+      });
+
+      return {
+        statementId,
+        aiClassified: batch.length,
+        remaining: pendingTransactions.length - nextCursor,
+        queuedNext: true,
+      };
+    }
+
+    await step.run("mark-completed", async () => {
+      await supabaseServer
+        .from("statements")
+        .update({ status: "COMPLETED", error_message: null })
+        .eq("id", statementId);
+    });
+
+    return {
+      statementId,
+      aiClassified: batch.length,
+      totalBatches: Math.ceil(pendingTransactions.length / batchSize),
+    };
+  },
+);
 
 export const sendGstr3bReminders = inngest.createFunction(
   {

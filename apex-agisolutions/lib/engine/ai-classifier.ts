@@ -11,17 +11,26 @@ function readIntEnv(name: string, fallback: number): number {
 export class AIClassifier {
   private openai: OpenAI;
   public model: string;
+  private provider: "nvidia" | "none";
 
   constructor() {
-    this.openai = new OpenAI({
-      baseURL:
-        process.env.NVIDIA_NIM_BASE_URL ||
-        "https://integrate.api.nvidia.com/v1",
-      apiKey: process.env.NVIDIA_NIM_API_KEY,
-      timeout: readIntEnv("NVIDIA_NIM_TIMEOUT_MS", 90000), // 90 seconds keeps slow NIM tolerable without hanging the upload for ages
-      maxRetries: 0, // Avoid doubling already-slow NIM waits on timeout
-    });
-    this.model = process.env.NVIDIA_NIM_MODEL || "Qwen/Qwen2.5-72B-Instruct";
+    if (process.env.NVIDIA_NIM_API_KEY) {
+      this.provider = "nvidia";
+      this.openai = new OpenAI({
+        baseURL:
+          process.env.NVIDIA_NIM_BASE_URL ||
+          "https://integrate.api.nvidia.com/v1",
+        apiKey: process.env.NVIDIA_NIM_API_KEY,
+        timeout: readIntEnv("NVIDIA_NIM_TIMEOUT_MS", 6500),
+        maxRetries: 0,
+      });
+      this.model =
+        process.env.NVIDIA_NIM_MODEL || "meta/llama-3.1-8b-instruct";
+    } else {
+      this.provider = "none";
+      this.openai = new OpenAI({ apiKey: "dummy" });
+      this.model = "none";
+    }
   }
 
   public async classifyBatch(
@@ -29,14 +38,14 @@ export class AIClassifier {
   ) {
     if (transactions.length === 0) return [];
 
-    // Skip if API key is not set to avoid breaking local dev
+    // Skip if no API key is set
     if (
-      !process.env.NVIDIA_NIM_API_KEY ||
+      this.provider === "none" ||
       process.env.DISABLE_AI_CLASSIFIER === "1" ||
       process.env.DISABLE_AI_CLASSIFIER === "true"
     ) {
       console.warn(
-        "AI classification is disabled or NVIDIA_NIM_API_KEY is not set. Skipping AI classification.",
+        "AI classification is disabled or API key is not set. Skipping AI classification.",
       );
       return transactions.map((t) => ({
         id: t.id,
@@ -54,44 +63,69 @@ export class AIClassifier {
     }));
 
     try {
-      const response = await this.openai.chat.completions.create({
-        model: this.model,
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert Indian Chartered Accountant assisting with GST Input Tax Credit (ITC). Output ONLY JSON in the following format:
-{
-  "transactions": [
-    {
-      "id": "string",
-      "mapped_vendor_name": "string",
-      "itc_status": "ELIGIBLE|BLOCKED|CONDITIONAL|RCM|UNKNOWN",
-      "block_reason": "string|null",
-      "itc_confidence": "number(0.0-1.0)"
-    }
-  ]
-}
+      const systemPrompt = `You are a GST expert. For each transaction, classify ITC status.
 
-Rules:
-1. Examine the bank narration and amount.
-2. Determine a clean 'mapped_vendor_name'.
-3. Determine if the transaction qualifies for ITC (ELIGIBLE), is BLOCKED under Section 17(5) (e.g. food, passenger vehicles), applies for Reverse Charge (RCM), or CONDITIONAL.
-4. Output a confidence score between 0.0 and 1.0`,
-          },
+STRICT RULES:
+- Output ONLY valid JSON. No markdown, no explanations, no code blocks.
+- Format: {"transactions":[{"id":"...","mapped_vendor_name":"...","itc_status":"ELIGIBLE|BLOCKED|RCM|UNKNOWN","block_reason":"...","itc_confidence":0.8}]}
+- ELIGIBLE: office expenses, professional services, business supplies, software, rent
+- BLOCKED: food, travel, personal, passenger vehicles, entertainment (Section 17(5))
+- RCM: imports, OIDAR services, legal, GTA
+- UNKNOWN: unclear business purpose
+- Confidence: 0.0-1.0 based on clarity`;
+
+      const requestBody: any = {
+        model: this.model,
+        messages: [],
+        stream: false,
+        temperature: 0,
+        max_tokens: readIntEnv(
+          "NVIDIA_NIM_MAX_TOKENS",
+          Math.min(900, 220 + transactions.length * 110),
+        ),
+      };
+
+      // Gemma models don't support system role through OpenAI compat layer
+      if (this.model.includes("gemma")) {
+        requestBody.messages = [
           {
             role: "user",
-            content: JSON.stringify(payload),
+            content: systemPrompt + "\n\n" + JSON.stringify(payload),
           },
-        ],
-        response_format: { type: "json_object" },
-      });
+        ];
+      } else {
+        requestBody.messages = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: JSON.stringify(payload) },
+        ];
+      }
 
-      const content = response.choices[0].message.content;
-      if (!content) return [];
-      const parsed = JSON.parse(content);
+      const response = await this.openai.chat.completions.create(requestBody);
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        console.warn("AI returned empty content");
+        return [];
+      }
+
+      // Strip markdown code blocks if present
+      let jsonContent = content.trim();
+      if (jsonContent.startsWith("```json")) {
+        jsonContent = jsonContent.replace(/```json\s*/, "").replace(/\s*```\s*$/, "");
+      } else if (jsonContent.startsWith("```")) {
+        jsonContent = jsonContent.replace(/```\s*/, "").replace(/\s*```\s*$/, "");
+      }
+
+      // Try to extract JSON object from the response
+      const jsonMatch = jsonContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonContent = jsonMatch[0];
+      }
+
+      const parsed = JSON.parse(jsonContent);
       return parsed.transactions || [];
     } catch (err) {
-      console.error("AI classification request failed", err);
+      console.error("AI classification request failed:", err);
       return [];
     }
   }
