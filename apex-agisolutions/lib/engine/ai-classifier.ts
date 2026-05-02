@@ -1,11 +1,17 @@
 import OpenAI from "openai";
+import { readIntEnv, readFloatEnv } from "@/lib/env";
 
-function readIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+function buildFallback(
+  transactions: Array<{ id: string; description: string; amount: number }>,
+  reason: string,
+) {
+  return transactions.map((t) => ({
+    id: t.id,
+    mapped_vendor_name: null,
+    itc_status: "UNKNOWN" as const,
+    block_reason: reason,
+    itc_confidence: 0,
+  }));
 }
 
 export class AIClassifier {
@@ -21,11 +27,11 @@ export class AIClassifier {
           process.env.NVIDIA_NIM_BASE_URL ||
           "https://integrate.api.nvidia.com/v1",
         apiKey: process.env.NVIDIA_NIM_API_KEY,
-        timeout: readIntEnv("NVIDIA_NIM_TIMEOUT_MS", 6500),
+        timeout: readIntEnv("NVIDIA_NIM_TIMEOUT_MS", 25000),
         maxRetries: 0,
       });
       this.model =
-        process.env.NVIDIA_NIM_MODEL || "meta/llama-3.1-8b-instruct";
+        process.env.NVIDIA_NIM_MODEL || "z-ai/glm4.7";
     } else {
       this.provider = "none";
       this.openai = new OpenAI({ apiKey: "dummy" });
@@ -47,13 +53,7 @@ export class AIClassifier {
       console.warn(
         "AI classification is disabled or API key is not set. Skipping AI classification.",
       );
-      return transactions.map((t) => ({
-        id: t.id,
-        mapped_vendor_name: "Auto-AI Skipped",
-        itc_status: "UNKNOWN",
-        block_reason: "API key missing",
-        itc_confidence: 0,
-      }));
+      return buildFallback(transactions, "AI disabled or API key missing");
     }
 
     const payload = transactions.map((t) => ({
@@ -62,6 +62,10 @@ export class AIClassifier {
       amount: t.amount,
     }));
 
+    const isGlmModel = this.model.includes("glm");
+    const isGemmaModel = this.model.includes("gemma");
+
+    const startedAt = Date.now();
     try {
       const systemPrompt = `You are a GST expert. For each transaction, classify ITC status.
 
@@ -78,15 +82,19 @@ STRICT RULES:
         model: this.model,
         messages: [],
         stream: false,
-        temperature: 0,
-        max_tokens: readIntEnv(
-          "NVIDIA_NIM_MAX_TOKENS",
-          Math.min(900, 220 + transactions.length * 110),
-        ),
+        temperature: readFloatEnv("NVIDIA_NIM_TEMPERATURE", 0),
+        top_p: readFloatEnv("NVIDIA_NIM_TOP_P", 1),
+        max_tokens: readIntEnv("NVIDIA_NIM_MAX_TOKENS", 500),
       };
 
+      if (isGlmModel) {
+        requestBody.chat_template_kwargs = {
+          enable_thinking: false,
+        };
+      }
+
       // Gemma models don't support system role through OpenAI compat layer
-      if (this.model.includes("gemma")) {
+      if (isGemmaModel) {
         requestBody.messages = [
           {
             role: "user",
@@ -102,31 +110,38 @@ STRICT RULES:
 
       const response = await this.openai.chat.completions.create(requestBody);
 
+      const elapsed = Date.now() - startedAt;
       const content = response.choices[0]?.message?.content;
       if (!content) {
-        console.warn("AI returned empty content");
-        return [];
+        console.warn(`[ai] batch=${transactions.length} model=${this.model} elapsed=${elapsed}ms result=empty`);
+        return buildFallback(transactions, "Empty AI response");
       }
 
-      // Strip markdown code blocks if present
       let jsonContent = content.trim();
+      jsonContent = jsonContent.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+      jsonContent = jsonContent.replace(/^(?:<[^>\n]+>\s*)+/, "").trim();
+
+      // Strip markdown code blocks if present
       if (jsonContent.startsWith("```json")) {
         jsonContent = jsonContent.replace(/```json\s*/, "").replace(/\s*```\s*$/, "");
       } else if (jsonContent.startsWith("```")) {
         jsonContent = jsonContent.replace(/```\s*/, "").replace(/\s*```\s*$/, "");
       }
 
-      // Try to extract JSON object from the response
-      const jsonMatch = jsonContent.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        jsonContent = jsonMatch[0];
+      const firstBrace = jsonContent.indexOf("{");
+      const lastBrace = jsonContent.lastIndexOf("}");
+      if (firstBrace >= 0 && lastBrace > firstBrace) {
+        jsonContent = jsonContent.slice(firstBrace, lastBrace + 1);
       }
 
       const parsed = JSON.parse(jsonContent);
-      return parsed.transactions || [];
+      const results = parsed.transactions || [];
+      console.info(`[ai] batch=${transactions.length} model=${this.model} elapsed=${elapsed}ms result=${results.length}tx`);
+      return results;
     } catch (err) {
-      console.error("AI classification request failed:", err);
-      return [];
+      const elapsed = Date.now() - startedAt;
+      console.error(`[ai] batch=${transactions.length} model=${this.model} elapsed=${elapsed}ms result=error`, err);
+      return buildFallback(transactions, "AI timeout or error");
     }
   }
 }

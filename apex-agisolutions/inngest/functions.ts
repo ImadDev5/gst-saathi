@@ -5,6 +5,7 @@ import { AIClassifier } from "@/lib/engine/ai-classifier";
 import { detectRCM } from "@/lib/engine/rcm-detector";
 import { reverseCalculateGST } from "@/lib/engine/gst-calculator";
 import { dedupHash } from "@/lib/dedup-hash";
+import { readIntEnv } from "@/lib/env";
 import Papa from "papaparse";
 
 interface ParsedTransaction {
@@ -53,6 +54,7 @@ interface StatementAIEventData {
   trialId: string;
   cursor?: number;
   transactions?: StatementAITaskTransaction[];
+  emptyBatchCount?: number;
 }
 
 interface StepRunner {
@@ -62,14 +64,6 @@ interface StepRunner {
 const inlineStepRunner: StepRunner = {
   run: async <T>(_name: string, fn: () => Promise<T>) => fn(),
 };
-
-function readPositiveIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 async function statementExists(statementId: string): Promise<boolean> {
   const { data, error } = await supabaseServer
@@ -243,7 +237,7 @@ export async function runStatementPipeline(
   );
 
   // Tier 2: AI classification — process each batch as its own checkpointed step
-  // This ensures each batch survives Vercel Hobby's 10s function timeout
+  // so slower NIM calls can finish cleanly on Vercel Hobby.
   let finalTransactions: ClassifiedTransaction[] = tier1Results;
 
   const { unmatched, batchSize, maxAITotal, rateLimitDelayMs, maxEmptyBatches } =
@@ -253,13 +247,13 @@ export async function runStatementPipeline(
       );
       return {
         unmatched,
-        batchSize: readPositiveIntEnv("NVIDIA_NIM_BATCH_SIZE", 20),
-        maxAITotal: readPositiveIntEnv("NVIDIA_NIM_MAX_AI_TOTAL", 1000),
-        rateLimitDelayMs: readPositiveIntEnv(
+        batchSize: readIntEnv("NVIDIA_NIM_BATCH_SIZE", 2),
+        maxAITotal: readIntEnv("NVIDIA_NIM_MAX_AI_TOTAL", 1000),
+        rateLimitDelayMs: readIntEnv(
           "NVIDIA_NIM_RATE_LIMIT_DELAY_MS",
           2500,
         ),
-        maxEmptyBatches: readPositiveIntEnv(
+        maxEmptyBatches: readIntEnv(
           "NVIDIA_NIM_MAX_EMPTY_BATCHES",
           1,
         ),
@@ -277,27 +271,46 @@ export async function runStatementPipeline(
       const start = batchIndex * batchSize;
       const batch = unmatched.slice(start, start + batchSize);
 
-      const aiResults = await step.run(
-        `ai-batch-${batchIndex + 1}`,
-        async () => {
-          const aiClassifier = new AIClassifier();
-          return aiClassifier.classifyBatch(
-            batch.map((t) => ({
-              id: t.id,
-              description: t.description,
-              amount: t.amount / 100,
-            })),
-          );
-        },
+      let aiResults: Awaited<ReturnType<AIClassifier["classifyBatch"]>> = [];
+      try {
+        aiResults = await step.run(
+          `ai-batch-${batchIndex + 1}`,
+          async () => {
+            const aiClassifier = new AIClassifier();
+            return aiClassifier.classifyBatch(
+              batch.map((t) => ({
+                id: t.id,
+                description: t.description,
+                amount: t.amount / 100,
+              })),
+            );
+          },
+        );
+      } catch (stepError) {
+        console.error(
+          `AI batch ${batchIndex + 1} step threw; falling back to UNKNOWN.`,
+          stepError,
+        );
+        aiResults = batch.map((t) => ({
+          id: t.id,
+          mapped_vendor_name: null,
+          itc_status: "UNKNOWN" as const,
+          block_reason: "AI step failure",
+          itc_confidence: 0,
+        }));
+      }
+
+      const usefulResults = aiResults.filter(
+        (r: { itc_confidence?: number }) => (r.itc_confidence ?? 0) >= 0.8,
       );
 
-      if (aiResults.length === 0) {
+      if (usefulResults.length === 0) {
         emptyBatchCount++;
         console.warn(
-          `AI batch ${batchIndex + 1} returned empty; leaving as UNKNOWN.`,
+          `AI batch ${batchIndex + 1} produced no useful results; leaving as UNKNOWN.`,
         );
         if (emptyBatchCount >= maxEmptyBatches) {
-          console.warn("Stopping AI after repeated empty batches.");
+          console.warn("Stopping AI after repeated empty/useless batches.");
           break;
         }
       } else {
@@ -340,11 +353,16 @@ export async function runStatementPipeline(
 
       // Rate limit delay between batches (except after the last one)
       if (aiClassified < maxAITotal && batchIndex < totalBatches - 1) {
-        await step.run(
-          `ai-delay-${batchIndex + 1}`,
-          async () =>
-            new Promise((resolve) => setTimeout(resolve, rateLimitDelayMs)),
-        );
+        try {
+          await step.run(
+            `ai-delay-${batchIndex + 1}`,
+            async () =>
+              new Promise((resolve) => setTimeout(resolve, rateLimitDelayMs)),
+          );
+        } catch {
+          // delay step failure is non-critical; continue to next batch
+          console.warn(`AI delay step failed for batch ${batchIndex + 1}; continuing.`);
+        }
       }
     }
   }
@@ -435,14 +453,16 @@ export const processStatement = inngest.createFunction(
     concurrency: 3,
     triggers: [{ event: "statements/uploaded" }],
     onFailure: async ({ event, error }) => {
-      const statementId = event.data.event.data.statementId;
+      const statementId = event?.data?.event?.data?.statementId;
+      if (!statementId) return;
       await supabaseServer
         .from("statements")
         .update({
           status: "FAILED",
           error_message: error.message,
         })
-        .eq("id", statementId);
+        .eq("id", statementId)
+        .eq("status", "PROCESSING");
     },
   },
   async ({
@@ -701,16 +721,18 @@ function parsePDF(
 // This function ONLY does AI classification on UNKNOWN DEBIT transactions in batches.
 export const processStatementAI = inngest.createFunction(
   {
-    id: "process-statement-ai",
+    id: "process-statement-ai-v2",
     retries: 2,
-    concurrency: 3,
+    concurrency: 1,
     triggers: [{ event: "statements/need-ai" }],
     onFailure: async ({ event, error }) => {
-      const statementId = event.data.event.data.statementId;
+      const statementId = event?.data?.event?.data?.statementId;
+      if (!statementId) return;
       await supabaseServer
         .from("statements")
         .update({ status: "FAILED", error_message: error.message })
-        .eq("id", statementId);
+        .eq("id", statementId)
+        .eq("status", "PROCESSING");
     },
   },
   async ({
@@ -721,8 +743,12 @@ export const processStatementAI = inngest.createFunction(
     step: StepRunner;
   }) => {
     const { statementId, trialId } = event.data;
-    const batchSize = readPositiveIntEnv("NVIDIA_NIM_BATCH_SIZE", 5);
-    const maxAITotal = readPositiveIntEnv("NVIDIA_NIM_MAX_AI_TOTAL", 1000);
+    const batchSize = readIntEnv("NVIDIA_NIM_BATCH_SIZE", 2);
+    const maxAITotal = readIntEnv("NVIDIA_NIM_MAX_AI_TOTAL", 1000);
+    const maxEmptyBatches = readIntEnv(
+      "NVIDIA_NIM_MAX_EMPTY_BATCHES",
+      1,
+    );
 
     // Step 1: Verify statement exists and build a stable worklist once.
     const pendingTransactions =
@@ -765,6 +791,7 @@ export const processStatementAI = inngest.createFunction(
     }
 
     const cursor = event.data.cursor || 0;
+    const emptyBatchCount = event.data.emptyBatchCount || 0;
     const batch = pendingTransactions.slice(cursor, cursor + batchSize);
 
     if (batch.length === 0) {
@@ -794,74 +821,152 @@ export const processStatementAI = inngest.createFunction(
       return { statementId, aiClassified: 0, skipped: true };
     }
 
-    const aiResults = await step.run(
-      `ai-batch-${cursor + 1}-${cursor + batch.length}`,
-      async () => {
-        const aiClassifier = new AIClassifier();
-        return aiClassifier.classifyBatch(
-          batch.map((t) => ({
-            id: t.id,
-            description: t.description,
-            amount: t.amount / 100,
-          })),
-        );
-      },
-    );
-
-    if (aiResults.length === 0) {
-      console.warn(
-        `AI batch ${cursor + 1}-${cursor + batch.length} returned empty; leaving transactions as UNKNOWN.`,
-      );
-    } else {
-      await step.run(
-        `update-batch-${cursor + 1}-${cursor + batch.length}`,
+    let aiResults: Awaited<ReturnType<AIClassifier["classifyBatch"]>> = [];
+    try {
+      aiResults = await step.run(
+        `ai-batch-${cursor + 1}-${cursor + batch.length}`,
         async () => {
-          for (const aiMatch of aiResults) {
-            const txn = batch.find((t) => t.id === aiMatch.id);
-            if (
-              !txn ||
-              aiMatch.itc_confidence === undefined ||
-              aiMatch.itc_confidence < 0.8
-            ) {
-              continue;
-            }
-
-            const validStatuses = [
-              "ELIGIBLE",
-              "BLOCKED",
-              "CONDITIONAL",
-              "RCM",
-              "UNKNOWN",
-            ];
-            const aiStatus = validStatuses.includes(aiMatch.itc_status)
-              ? aiMatch.itc_status
-              : "UNKNOWN";
-
-            const updates: any = {
-              itc_status: aiStatus,
-              mapped_vendor_name: aiMatch.mapped_vendor_name || null,
-              block_reason: aiMatch.block_reason || null,
-              confidence: aiMatch.itc_confidence,
-              action_required:
-                aiStatus === "ELIGIBLE"
-                  ? "Verify in GSTR-2B portal"
-                  : aiStatus === "RCM"
-                    ? "Pay RCM tax; claim ITC in same month"
-                    : null,
-            };
-
-            if (aiStatus === "ELIGIBLE" || aiStatus === "BLOCKED") {
-              updates.gst_amount = reverseCalculateGST(txn.amount, 18);
-            }
-
-            await supabaseServer
-              .from("transactions")
-              .update(updates)
-              .eq("id", aiMatch.id);
-          }
+          const aiClassifier = new AIClassifier();
+          return aiClassifier.classifyBatch(
+            batch.map((t) => ({
+              id: t.id,
+              description: t.description,
+              amount: t.amount / 100,
+            })),
+          );
         },
       );
+    } catch (stepError) {
+      console.error(
+        `AI batch ${cursor + 1}-${cursor + batch.length} step threw; falling back to UNKNOWN.`,
+        stepError,
+      );
+      aiResults = batch.map((t) => ({
+        id: t.id,
+        mapped_vendor_name: null,
+        itc_status: "UNKNOWN" as const,
+        block_reason: "AI step failure",
+        itc_confidence: 0,
+      }));
     }
+
+    const usefulResults = aiResults.filter(
+      (r: { itc_confidence?: number }) => (r.itc_confidence ?? 0) >= 0.8,
+    );
+
+    if (usefulResults.length === 0) {
+      const newEmptyCount = emptyBatchCount + 1;
+      console.warn(
+        `AI batch ${cursor + 1}-${cursor + batch.length} produced no useful results (empty streak ${newEmptyCount}/${maxEmptyBatches}); leaving as UNKNOWN.`,
+      );
+
+      if (newEmptyCount >= maxEmptyBatches) {
+        console.warn(
+          `Stopping AI after ${newEmptyCount} empty/useless batches; marking statement COMPLETED with UNKNOWN transactions.`,
+        );
+        await step.run("mark-completed-max-empty", async () => {
+          await supabaseServer
+            .from("statements")
+            .update({ status: "COMPLETED", error_message: null })
+            .eq("id", statementId);
+        });
+        return {
+          statementId,
+          aiClassified: 0,
+          stoppedDueToEmptyBatches: true,
+          emptyBatchCount: newEmptyCount,
+        };
+      }
+
+      // Advance to next batch but pass the empty count forward
+      const nextCursor = cursor + batch.length;
+      if (nextCursor < pendingTransactions.length) {
+        await step.run(`queue-next-batch-${nextCursor}`, async () => {
+          await inngest.send({
+            name: "statements/need-ai",
+            data: {
+              statementId,
+              trialId,
+              cursor: nextCursor,
+              transactions: pendingTransactions,
+              emptyBatchCount: newEmptyCount,
+            },
+          });
+        });
+
+        return {
+          statementId,
+          aiClassified: batch.length,
+          remaining: pendingTransactions.length - nextCursor,
+          queuedNext: true,
+          emptyBatchCount: newEmptyCount,
+        };
+      }
+
+      // Last batch, nothing left to queue
+      await step.run("mark-completed", async () => {
+        await supabaseServer
+          .from("statements")
+          .update({ status: "COMPLETED", error_message: null })
+          .eq("id", statementId);
+      });
+      return {
+        statementId,
+        aiClassified: batch.length,
+        totalBatches: Math.ceil(pendingTransactions.length / batchSize),
+        emptyBatchCount: newEmptyCount,
+      };
+    }
+
+    // We have useful results — reset empty streak and apply updates
+    await step.run(
+      `update-batch-${cursor + 1}-${cursor + batch.length}`,
+       async () => {
+        for (const aiMatch of aiResults) {
+          const txn = batch.find((t) => t.id === aiMatch.id);
+          if (
+            !txn ||
+            aiMatch.itc_confidence === undefined ||
+            aiMatch.itc_confidence < 0.8
+          ) {
+            continue;
+          }
+
+          const validStatuses = [
+            "ELIGIBLE",
+            "BLOCKED",
+            "CONDITIONAL",
+            "RCM",
+            "UNKNOWN",
+          ];
+          const aiStatus = validStatuses.includes(aiMatch.itc_status)
+            ? aiMatch.itc_status
+            : "UNKNOWN";
+
+          const updates: any = {
+            itc_status: aiStatus,
+            mapped_vendor_name: aiMatch.mapped_vendor_name || null,
+            block_reason: aiMatch.block_reason || null,
+            confidence: aiMatch.itc_confidence,
+            action_required:
+              aiStatus === "ELIGIBLE"
+                ? "Verify in GSTR-2B portal"
+                : aiStatus === "RCM"
+                  ? "Pay RCM tax; claim ITC in same month"
+                  : null,
+          };
+
+          if (aiStatus === "ELIGIBLE" || aiStatus === "BLOCKED") {
+            updates.gst_amount = reverseCalculateGST(txn.amount, 18);
+          }
+
+          await supabaseServer
+            .from("transactions")
+            .update(updates)
+            .eq("id", aiMatch.id);
+        }
+      },
+    );
 
     const nextCursor = cursor + batch.length;
     if (nextCursor < pendingTransactions.length) {
@@ -873,6 +978,7 @@ export const processStatementAI = inngest.createFunction(
             trialId,
             cursor: nextCursor,
             transactions: pendingTransactions,
+            emptyBatchCount: 0,
           },
         });
       });
@@ -970,5 +1076,57 @@ export const sendGstr3bReminders = inngest.createFunction(
     }
 
     return { recipients: recipients.length, emailsSent: sent };
+  },
+);
+
+export const cleanupStuckStatements = inngest.createFunction(
+  {
+    id: "cleanup-stuck-statements",
+    triggers: [{ cron: "*/5 * * * *" }],
+  },
+  async ({ step }: { step: StepRunner }) => {
+    const STUCK_THRESHOLD_MINUTES = 10;
+
+    const stuck = await step.run("find-stuck", async () => {
+      const cutoff = new Date(
+        Date.now() - STUCK_THRESHOLD_MINUTES * 60 * 1000,
+      ).toISOString();
+
+      const { data, error } = await supabaseServer
+        .from("statements")
+        .select("id, created_at")
+        .eq("status", "PROCESSING")
+        .lt("created_at", cutoff);
+
+      if (error) {
+        console.error("Failed to query stuck statements:", error);
+        return [];
+      }
+
+      return data || [];
+    });
+
+    if (stuck.length === 0) {
+      return { cleaned: 0 };
+    }
+
+    const ids = stuck.map((s) => s.id);
+    await step.run("mark-stuck-completed", async () => {
+      const { error } = await supabaseServer
+        .from("statements")
+        .update({
+          status: "COMPLETED",
+          error_message: "Auto-completed by cleanup job (processing timed out)",
+        })
+        .in("id", ids)
+        .eq("status", "PROCESSING");
+
+      if (error) {
+        console.error("Failed to cleanup stuck statements:", error);
+      }
+    });
+
+    console.info(`[cleanup] Marked ${ids.length} stuck statement(s) as COMPLETED`);
+    return { cleaned: ids.length, ids };
   },
 );
