@@ -2,22 +2,14 @@ import { inngest } from "./client";
 import { supabaseServer } from "@/lib/supabase/client";
 import { VendorMatcher } from "@/lib/engine/vendor-matcher";
 import { AIClassifier } from "@/lib/engine/ai-classifier";
+import { AlgorithmicClassifier } from "@/lib/engine/algorithmic-classifier";
 import { detectRCM } from "@/lib/engine/rcm-detector";
 import { reverseCalculateGST } from "@/lib/engine/gst-calculator";
 import { dedupHash } from "@/lib/dedup-hash";
 import { readIntEnv } from "@/lib/env";
-import Papa from "papaparse";
+import { parseCSV, parsePDF, ParsedTransaction } from "@/lib/services/parsing";
 
-interface ParsedTransaction {
-  id: string;
-  statement_id: string;
-  trial_id: string;
-  transaction_date: string;
-  description: string;
-  amount: number;
-  transaction_type: "DEBIT" | "CREDIT";
-  balance: number | null;
-}
+const algoClassifier = new AlgorithmicClassifier();
 
 interface ClassifiedTransaction extends ParsedTransaction {
   vendor_id: string | null;
@@ -30,9 +22,6 @@ interface ClassifiedTransaction extends ParsedTransaction {
   rcm_type: string | null;
   dedupe_hash: string;
 }
-
-const PG_INT_MAX = 2147483647;
-const PG_INT_MIN = -2147483648;
 
 interface UploadedStatementEventData {
   statementId: string;
@@ -85,7 +74,7 @@ export async function runStatementPipeline(
   eventData: UploadedStatementEventData,
   step: StepRunner = inlineStepRunner,
 ) {
-  const { statementId, storagePath, trialId, filename, fileBuffer: providedBuffer } = eventData;
+  const { statementId, storagePath, trialId, filename, fileBuffer: providedBuffer, bankName } = eventData;
 
   const existsAtStart = await step.run("ensure-statement-exists", async () =>
     statementExists(statementId),
@@ -136,8 +125,8 @@ export async function runStatementPipeline(
     async () => {
       const buffer = Buffer.from(fileBuffer, "base64");
       return isPDF
-        ? parsePDF(buffer, statementId, trialId, filename)
-        : parseCSV(buffer, statementId, trialId);
+        ? parsePDF(buffer, statementId, trialId, filename, bankName)
+        : parseCSV(buffer, statementId, trialId, bankName);
     },
   );
 
@@ -288,14 +277,14 @@ export async function runStatementPipeline(
         );
       } catch (stepError) {
         console.error(
-          `AI batch ${batchIndex + 1} step threw; falling back to UNKNOWN.`,
+          `AI batch ${batchIndex + 1} step threw; falling back to algorithmic classifier.`,
           stepError,
         );
         aiResults = batch.map((t) => ({
           id: t.id,
           mapped_vendor_name: null,
           itc_status: "UNKNOWN" as const,
-          block_reason: "AI step failure",
+          block_reason: "AI step failure - will attempt algorithmic classification",
           itc_confidence: 0,
         }));
       }
@@ -474,248 +463,6 @@ export const processStatement = inngest.createFunction(
   }) => runStatementPipeline(event.data, step),
 );
 
-function findColumn(lower: string[], original: string[], candidates: string[]): string | null {
-  for (const c of candidates) {
-    const cLower = c.toLowerCase();
-    const matchIdx = lower.findIndex(h => {
-      if (h === cLower) return true;
-      if (cLower.length <= 3) {
-         return new RegExp(`\\b${cLower}\\b`).test(h);
-      }
-      return h.includes(cLower) || cLower.includes(h);
-    });
-    if (matchIdx >= 0) return original[matchIdx];
-  }
-  return null;
-}
-
-function normalizeDate(raw: string): string {
-  if (!raw) return new Date().toISOString().split("T")[0];
-  const cleaned = raw.trim().replace(/\s+/g, " ");
-
-  // DD-MMM-YYYY or DD MMM YYYY or DD/MMM/YYYY
-  let m = cleaned.match(/^(\d{1,2})[- \/]+([A-Za-z]{3,})[- \/]+(\d{2,4})/);
-  if (m) {
-    const months: Record<string, string> = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
-    const month = months[m[2].substring(0, 3).toLowerCase()] || "01";
-    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
-    return `${year}-${month}-${m[1].padStart(2, "0")}`;
-  }
-
-  // YYYY-MM-DD or YYYY/MM/DD
-  m = cleaned.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-
-  // DD/MM/YYYY or DD-MM-YYYY or MM/DD/YYYY
-  m = cleaned.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/);
-  if (m) {
-    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
-    let d = parseInt(m[1], 10);
-    let mo = parseInt(m[2], 10);
-    if (mo > 12 && d <= 12) {
-      [d, mo] = [mo, d];
-    }
-    const month = mo <= 12 ? mo : 1; 
-    return `${year}-${month.toString().padStart(2, "0")}-${d.toString().padStart(2, "0")}`;
-  }
-
-  const parsed = new Date(cleaned);
-  if (!isNaN(parsed.getTime())) return parsed.toISOString().split("T")[0];
-
-  return new Date().toISOString().split("T")[0];
-}
-
-export function parseCSV(
-  buffer: Buffer,
-  statementId: string,
-  trialId: string,
-): ParsedTransaction[] {
-  const text = buffer.toString("utf-8").replace(/^\uFEFF/, "");
-
-  // Read as array of arrays first to find headers (bypassing preamble)
-  const rawParse = Papa.parse(text, {
-    header: false,
-    skipEmptyLines: true,
-  });
-
-  const rawRows = rawParse.data as string[][];
-  if (!rawRows || rawRows.length === 0) return [];
-
-  // Determine header row dynamically by looking for common column names 
-  let headerRowIndex = 0;
-  let headers: string[] = [];
-  
-  for (let i = 0; i < Math.min(30, rawRows.length); i++) {
-    const rowLow = rawRows[i].map(c => (c || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
-    const matchScore = rowLow.filter(c => 
-      c.includes("date") || 
-      c.includes("desc") || 
-      c.includes("narration") || 
-      c.includes("particular") || 
-      c.includes("amount") || 
-      c.includes("debit") || 
-      c.includes("withdrawal") ||
-      c.includes("credit") || 
-      c.includes("deposit") ||
-      c.includes("balance")
-    ).length;
-
-    // If we find at least 3 matching header-like columns, this is likely the header row
-    if (matchScore >= 3 || (matchScore >= 2 && rawRows[i].length >= 3)) {
-      headerRowIndex = i;
-      headers = rawRows[i].map(h => h ? h.trim() : "");
-      break;
-    }
-  }
-
-  // Fallback if no clear header found
-  if (headers.length === 0) {
-    headerRowIndex = 0;
-    headers = rawRows[0].map(h => h ? h.trim() : "");
-  }
-
-  const lower = headers.map(h => h.toLowerCase());
-
-  // Detect exact mapping using fuzzy approach
-  const dateCol = findColumn(lower, headers, ["transaction date", "txn date", "value date", "post date", "trans date", "date"]);
-  const descCol = findColumn(lower, headers, ["description", "narration", "particulars", "remarks", "narrative", "transaction details", "details"]);
-  
-  // Debit / Credit splitting vs Combined Amount
-  const parsedRows: ParsedTransaction[] = [];
-  
-  const debitCol = findColumn(lower, headers, ["debit", "withdrawal", "dr", "paid out"]);
-  const creditCol = findColumn(lower, headers, ["credit", "deposit", "cr", "paid in"]);
-  
-  // Fallback for unified "Amount" column
-  const amtCol = findColumn(lower, headers, ["amount", "txn amount", "transaction amount"]);
-  // Sometimes bank provide sign in separate col "Dr/Cr"
-  const typeCol = findColumn(lower, headers, ["type", "dr/cr", "cr/dr", "indicator"]);
-
-  const balanceCol = findColumn(lower, headers, ["balance", "closing balance", "run bal"]);
-
-  // We map index to easily get row values
-  const getVal = (row: string[], colHeader: string | null) => {
-    if (!colHeader) return null;
-    const idx = headers.indexOf(colHeader);
-    return idx >= 0 ? row[idx] : null;
-  };
-
-  const cleanNum = (val: string | null) => {
-    if (!val) return 0;
-    // Remove "Cr" or "Dr" text inside amount strings sometimes
-    const clean = val.replace(/cr/i, "").replace(/dr/i, "").replace(/[^0-9.-]/g, "");
-    return parseFloat(clean) || 0;
-  };
-
-  const toPaiseWithinInteger = (value: number): number | null => {
-    const paise = Math.round(value * 100);
-
-    if (paise > PG_INT_MAX || paise < PG_INT_MIN) {
-      return null;
-    }
-
-    return paise;
-  };
-
-  // Parse data rows
-  let trIdx = 0;
-  for (let i = headerRowIndex + 1; i < rawRows.length; i++) {
-    const row = rawRows[i];
-    
-    // Skip completely empty rows
-    if (row.filter(c => c && c.trim() !== "").length === 0) continue;
-
-    const rawDate = getVal(row, dateCol);
-    const description = getVal(row, descCol);
-    if (!description || !rawDate || rawDate.trim() === "" || description.trim() === "") continue;
-
-    let transactionType: "DEBIT" | "CREDIT" | null = null;
-    let finalAmount = 0;
-
-    // Prioritize explicit debit / credit columns
-    if (debitCol || creditCol) {
-      const dAmt = cleanNum(getVal(row, debitCol));
-      const cAmt = cleanNum(getVal(row, creditCol));
-      
-      if (dAmt > 0) {
-        transactionType = "DEBIT";
-        finalAmount = dAmt;
-      } else if (cAmt > 0) {
-        transactionType = "CREDIT";
-        finalAmount = cAmt;
-      }
-    } 
-    // Fallback to unified Amount column
-    else if (amtCol) {
-      const rawAmtStr = (getVal(row, amtCol) || "");
-      let amt = cleanNum(rawAmtStr);
-      let isCredit = false;
-
-      // check if sign is implicit in raw string "1,000 Cr."
-      if (rawAmtStr.toLowerCase().includes("cr")) isCredit = true;
-      else if (rawAmtStr.toLowerCase().includes("dr")) isCredit = false;
-      // or explicit minus sign for debit (some banks do positive debit, others negative debit)
-      // Standard: positive amount = credit, negative amount = debit
-      else if (amt < 0) {
-        isCredit = false;
-      } else {
-        isCredit = true; 
-      }
-
-      // override if explicit type column exists
-      if (typeCol) {
-        const typeSign = (getVal(row, typeCol) || "").toLowerCase();
-        if (typeSign.includes("dr") || typeSign.includes("debit")) isCredit = false;
-        else if (typeSign.includes("cr") || typeSign.includes("credit")) isCredit = true;
-      }
-
-      amt = Math.abs(amt);
-      if (amt > 0) {
-        transactionType = isCredit ? "CREDIT" : "DEBIT";
-        finalAmount = amt;
-      }
-    }
-
-    if (!transactionType || finalAmount === 0) continue;
-
-    const balanceRaw = getVal(row, balanceCol);
-    const balance = balanceRaw ? toPaiseWithinInteger(cleanNum(balanceRaw)) : null;
-
-    parsedRows.push({
-      id: `${statementId}_r${trIdx++}`,
-      statement_id: statementId,
-      trial_id: trialId,
-      transaction_date: normalizeDate(rawDate),
-      description: description.trim(),
-      amount: Math.round(finalAmount * 100),
-      transaction_type: transactionType,
-      balance,
-    });
-  }
-
-  return parsedRows;
-}
-
-function parsePDF(
-  buffer: Buffer,
-  statementId: string,
-  trialId: string,
-  filename: string,
-): ParsedTransaction[] {
-  return [
-    {
-      id: `${statementId}_pdf_meta`,
-      statement_id: statementId,
-      trial_id: trialId,
-      transaction_date: new Date().toISOString().split("T")[0],
-      description: `PDF: ${filename}. Text extraction pending — re-upload as CSV for automatic processing.`,
-      amount: 0,
-      transaction_type: "DEBIT",
-      balance: null,
-    },
-  ];
-}
-
 // AI-only classification function for CSV uploads.
 // Transactions are already parsed + vendor-matched + inserted by the upload handler.
 // This function ONLY does AI classification on UNKNOWN DEBIT transactions in batches.
@@ -838,20 +585,27 @@ export const processStatementAI = inngest.createFunction(
       );
     } catch (stepError) {
       console.error(
-        `AI batch ${cursor + 1}-${cursor + batch.length} step threw; falling back to UNKNOWN.`,
+        `AI batch ${cursor + 1}-${cursor + batch.length} step threw; falling back to algorithmic classifier.`,
         stepError,
       );
-      aiResults = batch.map((t) => ({
-        id: t.id,
-        mapped_vendor_name: null,
-        itc_status: "UNKNOWN" as const,
-        block_reason: "AI step failure",
-        itc_confidence: 0,
-      }));
+      aiResults = batch.map((t) => {
+        const algo = algoClassifier.classify(t.description, t.amount);
+        return {
+          id: t.id,
+          mapped_vendor_name: algo.mapped_vendor_name,
+          itc_status: algo.itc_status as
+            | "ELIGIBLE"
+            | "BLOCKED"
+            | "RCM"
+            | "UNKNOWN",
+          block_reason: algo.block_reason || "AI step failure",
+          itc_confidence: algo.itc_confidence,
+        };
+      });
     }
 
     const usefulResults = aiResults.filter(
-      (r: { itc_confidence?: number }) => (r.itc_confidence ?? 0) >= 0.8,
+      (r: { itc_confidence?: number }) => (r.itc_confidence ?? 0) >= 0.6,
     );
 
     if (usefulResults.length === 0) {

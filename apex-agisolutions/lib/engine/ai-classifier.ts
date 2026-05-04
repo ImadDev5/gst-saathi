@@ -1,17 +1,25 @@
 import OpenAI from "openai";
 import { readIntEnv, readFloatEnv } from "@/lib/env";
+import { defaultAlgoClassifier } from "@/lib/engine/algorithmic-classifier";
 
 function buildFallback(
   transactions: Array<{ id: string; description: string; amount: number }>,
   reason: string,
 ) {
-  return transactions.map((t) => ({
-    id: t.id,
-    mapped_vendor_name: null,
-    itc_status: "UNKNOWN" as const,
-    block_reason: reason,
-    itc_confidence: 0,
-  }));
+  return transactions.map((t) => {
+    const algo = defaultAlgoClassifier.classify(t.description, t.amount * 100);
+    return {
+      id: t.id,
+      mapped_vendor_name: algo.mapped_vendor_name,
+      itc_status: algo.itc_status as
+        | "ELIGIBLE"
+        | "BLOCKED"
+        | "RCM"
+        | "UNKNOWN",
+      block_reason: algo.block_reason || reason,
+      itc_confidence: algo.itc_confidence,
+    };
+  });
 }
 
 export class AIClassifier {

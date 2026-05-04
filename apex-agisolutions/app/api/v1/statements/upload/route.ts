@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/client";
 import { inngest } from "@/inngest/client";
-import { parseCSV } from "@/inngest/functions";
+import { parseCSV } from "@/lib/services/parsing";
 import { VendorMatcher } from "@/lib/engine/vendor-matcher";
+import { AlgorithmicClassifier } from "@/lib/engine/algorithmic-classifier";
 import { detectRCM } from "@/lib/engine/rcm-detector";
 import { reverseCalculateGST } from "@/lib/engine/gst-calculator";
 import { dedupHash } from "@/lib/dedup-hash";
+
+const algoClassifier = new AlgorithmicClassifier();
 
 export async function POST(req: NextRequest) {
   try {
@@ -85,7 +88,7 @@ export async function POST(req: NextRequest) {
     // Step 4: For CSV, parse + vendor match + insert inline, then send to Inngest for AI only
     if (fileExt === "csv") {
       try {
-        const transactions = parseCSV(Buffer.from(fileBuffer), statementId, trialId);
+        const transactions = parseCSV(Buffer.from(fileBuffer), statementId, trialId, bankName);
 
         // Run tier1 vendor matching
         const { data: vendors } = await supabaseServer
@@ -148,7 +151,35 @@ export async function POST(req: NextRequest) {
           return result;
         });
 
-        // Insert tier1 results into DB
+          // If AI is disabled, use algorithmic classifier for remaining UNKNOWN entries
+          if (
+            process.env.DISABLE_AI_CLASSIFIER === "1" ||
+            process.env.DISABLE_AI_CLASSIFIER === "true"
+          ) {
+            for (const row of rows) {
+              if (
+                row.itc_status === "UNKNOWN" &&
+                row.transaction_type === "DEBIT" &&
+                row.amount > 0
+              ) {
+                const algo = algoClassifier.classify(
+                  row.description,
+                  row.amount,
+                );
+                row.itc_status = algo.itc_status;
+                row.mapped_vendor_name =
+                  algo.mapped_vendor_name || row.mapped_vendor_name;
+                row.block_reason = algo.block_reason || row.block_reason;
+                row.confidence = algo.itc_confidence;
+                row.action_required =
+                  algo.action_required || row.action_required;
+                row.rcm_type = algo.rcm_type || row.rcm_type;
+                row.gst_amount = algo.gst_amount || row.gst_amount;
+              }
+            }
+          }
+
+          // Insert tier1 results into DB
         if (rows.length > 0) {
           const { error: insertError } = await supabaseServer
             .from("transactions")

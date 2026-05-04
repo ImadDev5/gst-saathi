@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import ContactForm from "@/components/ContactForm";
 
 const countries = [
   { flag: "🇺🇸", label: "United States" },
@@ -373,11 +372,8 @@ export default function Home() {
             <a href="#industries" className="text-gray-400 transition-colors hover:text-white">
               / INDUSTRIES
             </a>
-            <a href="/signin" className="text-gray-400 transition-colors hover:text-white">
-              Sign In
-            </a>
-            <a href="/admin/signin" className="text-gray-600 transition-colors hover:text-amber-400 text-xs ml-2">
-              Admin
+            <a href="/taxapex" className="text-gray-400 transition-colors hover:text-cyan-400">
+              / TAXAPEX
             </a>
             <a href="#contact" className="btn-neon rounded-sm px-6 py-2 text-xs font-bold">
               Initialize
@@ -422,18 +418,11 @@ export default function Home() {
             Industries
           </a>
           <a
-            href="/signin"
-            className="font-display text-lg text-gray-400 hover:text-white"
+            href="/taxapex"
+            className="font-display text-lg text-gray-400 hover:text-cyan-400"
             onClick={() => setMobileMenuOpen(false)}
           >
-            Sign In
-          </a>
-          <a
-            href="/admin/signin"
-            className="font-display text-sm text-gray-600 hover:text-amber-400"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            Admin
+            TaxApex
           </a>
           <a
             href="#contact"
@@ -824,8 +813,57 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="glass-card rounded-2xl border-l-4 border-l-cyan-400">
-              <ContactForm />
+            <div className="relative rounded-xl border border-gray-800 bg-[#070b14] p-8 shadow-[0_0_20px_rgba(34,211,238,0.15)]">
+              <p className="mb-8 font-mono text-[11px] tracking-[0.2em] text-gray-500 uppercase">
+                Secure Transmission Protocol
+              </p>
+              <form className="flex flex-col gap-6" onSubmit={(e) => e.preventDefault()}>
+                <input 
+                  type="text" 
+                  placeholder="Full Name *" 
+                  className="w-full border-b border-gray-700/60 bg-transparent pb-3 pt-2 text-sm text-white placeholder-gray-400 focus:border-cyan-400 focus:outline-none transition-colors"
+                  required 
+                />
+                <input 
+                  type="email" 
+                  placeholder="Business Email *" 
+                  className="w-full border-b border-gray-700/60 bg-transparent pb-3 pt-2 text-sm text-white placeholder-gray-400 focus:border-cyan-400 focus:outline-none transition-colors"
+                  required 
+                />
+                <input 
+                  type="tel" 
+                  placeholder="Phone Number *" 
+                  className="w-full border-b border-gray-700/60 bg-transparent pb-3 pt-2 text-sm text-white placeholder-gray-400 focus:border-cyan-400 focus:outline-none transition-colors"
+                  required 
+                />
+                <div className="relative">
+                  <select 
+                    className="w-full appearance-none border-b border-gray-700/60 bg-transparent pb-3 pt-2 text-sm text-gray-400 focus:border-cyan-400 focus:outline-none transition-colors cursor-pointer"
+                    required
+                    defaultValue=""
+                  >
+                    <option value="" disabled hidden>Select Service *</option>
+                    <option value="development" className="bg-gray-900 text-white">Software Development</option>
+                    <option value="support" className="bg-gray-900 text-white">IT Support</option>
+                    <option value="consulting" className="bg-gray-900 text-white">Consulting</option>
+                  </select>
+                  <div className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-gray-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                  </div>
+                </div>
+                <textarea 
+                  placeholder="Tell us about your requirements (Optional)" 
+                  rows={2}
+                  className="w-full resize-none border-b border-gray-700/60 bg-transparent pb-3 pt-2 text-sm text-white placeholder-gray-400 focus:border-cyan-400 focus:outline-none transition-colors mt-2"
+                ></textarea>
+                
+                <button 
+                  type="submit" 
+                  className="mt-4 w-full rounded bg-gradient-to-r from-cyan-400 to-indigo-500 py-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 shadow-lg shadow-cyan-500/20"
+                >
+                  REQUEST FREE CONSULTATION
+                </button>
+              </form>
             </div>
           </div>
 

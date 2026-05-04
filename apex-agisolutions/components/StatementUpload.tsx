@@ -1,27 +1,15 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { SUPPORTED_BANKS, detectBankFromFilename } from "@/lib/services/parsing";
 
 interface Props {
   onUploadComplete: (statementId: string) => void;
 }
 
-const SUPPORTED_BANKS = ["HDFC", "ICICI", "SBI", "KOTAK", "AXIS", "OTHER"] as const;
 const POLL_INTERVAL_MS = 3000;
 const PROCESSING_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_POLL_ATTEMPTS = Math.ceil(PROCESSING_TIMEOUT_MS / POLL_INTERVAL_MS);
-
-function detectBankFromFilename(fileName: string): string {
-  const normalizedName = fileName.toUpperCase();
-
-  for (const bank of SUPPORTED_BANKS) {
-    if (bank !== "OTHER" && normalizedName.includes(bank)) {
-      return bank;
-    }
-  }
-
-  return "";
-}
 
 export default function StatementUpload({ onUploadComplete }: Props) {
   const [file, setFile] = useState<File | null>(null);

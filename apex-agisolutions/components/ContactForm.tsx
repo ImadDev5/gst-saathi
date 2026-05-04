@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { contactSchema, ContactFormData } from '@/lib/validators/contact'
 
-export default function ContactForm() {
+export default function ContactForm({ className = '' }: { className?: string }) {
   const [successMsg, setSuccessMsg] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   
@@ -44,7 +44,7 @@ export default function ContactForm() {
   }
 
   return (
-    <div className="max-w-md mx-auto p-6 bg-charcoal rounded-xl shadow-lg border border-gray-800">
+    <div className={`max-w-md mx-auto p-6 bg-charcoal rounded-xl shadow-lg border border-gray-800 ${className}`}>
       <h2 className="text-2xl font-display text-white mb-6 text-center">Request GSTSaathi Access</h2>
       
       {successMsg && (

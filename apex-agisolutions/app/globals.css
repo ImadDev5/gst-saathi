@@ -14,6 +14,8 @@
   --color-void: var(--apex-void);
   --color-charcoal: var(--apex-charcoal);
   --color-gold: var(--apex-gold);
+  --color-cyan: #00d4ff;
+  --color-cyan-dim: #009fc4;
   --font-sans: var(--font-plus-jakarta-sans);
   --font-display: var(--font-space-grotesk);
   --font-mono: var(--font-jetbrains-mono);
