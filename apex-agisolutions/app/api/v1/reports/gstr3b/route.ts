@@ -23,8 +23,8 @@ export async function GET(req: NextRequest) {
     const end = new Date(year, month, 0).toISOString().split("T")[0];
 
     const { data: entries, error } = await supabaseServer
-      .from("retail_entries")
-      .select("*")
+      .from("entries")
+      .select("id, entry_type, entry_date, customer_type, party_gstin, party_name, entry_line_items(*)")
       .eq("trial_id", session.id)
       .is("deleted_at", null)
       .gte("entry_date", start)
