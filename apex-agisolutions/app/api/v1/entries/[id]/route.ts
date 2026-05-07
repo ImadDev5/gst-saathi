@@ -54,11 +54,16 @@ export async function PUT(
 
     const { data: existing } = await supabaseServer
       .from("entries")
-      .select("*, entry_line_items(*)")
+      .select("*, entry_line_items!inner(*)")
       .eq("id", id)
       .eq("trial_id", session.id)
       .is("deleted_at", null)
       .single();
+
+    // Filter out soft-deleted line items from the response for audit diff calculation
+    if (existing) {
+      existing.entry_line_items = (existing.entry_line_items || []).filter((li: any) => !li.deleted_at);
+    }
 
     if (!existing) return NextResponse.json({ error: "Entry not found" }, { status: 404 });
 
@@ -185,6 +190,10 @@ export async function PUT(
       .select("*, entry_line_items(*)")
       .eq("id", id)
       .single();
+
+    if (finalEntry) {
+      finalEntry.entry_line_items = (finalEntry.entry_line_items || []).filter((li: any) => !li.deleted_at);
+    }
 
     return NextResponse.json({
       success: true,

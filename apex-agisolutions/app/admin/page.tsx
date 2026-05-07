@@ -2,6 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Users, Clock, CheckCircle2, LogOut, Copy, Check, RefreshCcw } from "lucide-react";
 
 interface Contact {
   id: string;
@@ -16,14 +25,6 @@ interface Contact {
   created_at: string;
   contact_tokens: { trial_sessions: { token: string; status: string; expires_at: string } }[];
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  NEW: "text-gray-400",
-  ASSIGNED: "text-yellow-400",
-  CONTACTED: "text-blue-400",
-  ONBOARDED: "text-emerald-400",
-  REJECTED: "text-red-400",
-};
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -98,132 +99,156 @@ export default function AdminDashboard() {
     router.push("/admin/signin");
   };
 
+  const statCards = [
+    { label: "Total Contacts", value: stats.total, icon: Users },
+    { label: "Pending", value: stats.new, icon: Clock },
+    { label: "Tokens Assigned", value: stats.assigned, icon: CheckCircle2 },
+  ];
+
   return (
-    <div className="min-h-screen bg-black text-white p-4 sm:p-8">
-      <div className="mx-auto max-w-7xl space-y-8">
-        {/* Header */}
-        <header className="border-b border-gray-800 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="min-h-screen bg-[#F8F9FB] text-slate-900 p-6">
+      <TooltipProvider>
+        <div className="mx-auto max-w-7xl space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                Tax<span className="text-slate-500">Apex</span>{" "}
+                <span className="text-sm text-slate-500 font-normal">Admin Panel</span>
+              </h1>
+            </div>
+            <div className="flex items-center gap-3">
+              <a href="/" className="text-xs text-slate-400 hover:text-slate-900 transition-colors">
+                &larr; Back to site
+              </a>
+              <Button variant="outline" size="sm" onClick={handleLogout} className="border-slate-200">
+                <LogOut className="w-3.5 h-3.5 mr-1.5" />
+                Logout
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            {statCards.map((s) => {
+              const Icon = s.icon;
+              return (
+                <Card key={s.label} className="shadow-sm border-slate-200 hover:shadow-md transition-shadow duration-150">
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">
+                        {s.label}
+                      </h2>
+                      <Icon className="w-3.5 h-3.5 text-slate-400" />
+                    </div>
+                    <p className="text-2xl font-semibold text-slate-900 tabular-nums">{s.value}</p>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
           <div>
-            <h1 className="font-mono text-2xl tracking-tight">
-              GST<span className="text-cyan-400">Saathi</span>{" "}
-              <span className="text-sm text-gray-500 font-normal">Admin Panel</span>
-            </h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <a
-              href="/"
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              ← Back to site
-            </a>
-            <button
-              onClick={handleLogout}
-              className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded transition-colors"
-            >
-              Logout
-            </button>
-          </div>
-        </header>
-
-        {/* Stats */}
-        <section className="grid grid-cols-3 gap-3">
-          <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
-            <h2 className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">
-              Total Contacts
-            </h2>
-            <p className="text-2xl font-light font-mono text-white">{stats.total}</p>
-          </div>
-          <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
-            <h2 className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">
-              Pending
-            </h2>
-            <p className="text-2xl font-light font-mono text-yellow-400">{stats.new}</p>
-          </div>
-          <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
-            <h2 className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">
-              Tokens Assigned
-            </h2>
-            <p className="text-2xl font-light font-mono text-emerald-400">{stats.assigned}</p>
-          </div>
-        </section>
-
-        {/* Contacts Table */}
-        <section>
-          <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
-            Contact Submissions
-          </h2>
-          <div className="rounded-xl border border-gray-800 bg-gray-900/50 overflow-hidden">
-            {loading ? (
-              <div className="p-8 text-center text-gray-500">Loading...</div>
-            ) : contacts.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">No contacts yet</div>
-            ) : (
+            <div className="flex items-center gap-2 mb-3">
+              <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                Contact Submissions
+              </h2>
+              <Button variant="ghost" size="sm" onClick={fetchContacts} className="h-7">
+                <RefreshCcw className="w-3 h-3" />
+              </Button>
+            </div>
+            <Card className="shadow-sm border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wider">
-                      <th className="text-left p-3">Name</th>
-                      <th className="text-left p-3">Email</th>
-                      <th className="text-left p-3 hidden sm:table-cell">Business</th>
-                      <th className="text-left p-3 hidden md:table-cell">Phone</th>
-                      <th className="text-left p-3 hidden lg:table-cell">GSTIN</th>
-                      <th className="text-left p-3">Status</th>
-                      <th className="text-left p-3 hidden xl:table-cell">Token</th>
-                      <th className="text-left p-3">Actions</th>
+                  <thead className="bg-slate-50">
+                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                      <th className="text-left px-4 py-3 font-medium">Name</th>
+                      <th className="text-left px-4 py-3 font-medium">Email</th>
+                      <th className="text-left px-4 py-3 font-medium hidden sm:table-cell">Business</th>
+                      <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Phone</th>
+                      <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">GSTIN</th>
+                      <th className="text-left px-4 py-3 font-medium">Status</th>
+                      <th className="text-left px-4 py-3 font-medium hidden xl:table-cell">Token</th>
+                      <th className="text-left px-4 py-3 font-medium">Actions</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {contacts.map((c) => (
-                      <tr key={c.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                        <td className="p-3 font-medium">{c.name}</td>
-                        <td className="p-3 text-gray-400">{c.email}</td>
-                        <td className="p-3 text-gray-400 hidden sm:table-cell">{c.business_name}</td>
-                        <td className="p-3 text-gray-400 hidden md:table-cell">{c.phone}</td>
-                        <td className="p-3 text-gray-400 hidden lg:table-cell font-mono text-xs">{c.gstin || "—"}</td>
-                        <td className="p-3">
-                          <span className={`text-xs font-mono ${STATUS_COLORS[c.status] || "text-gray-400"}`}>
-                            {c.status}
-                          </span>
-                        </td>
-                        <td className="p-3 hidden xl:table-cell">
-                          {c.assigned_token ? (
-                            <div className="flex items-center gap-2">
-                              <code className="text-xs text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded">
-                                {c.assigned_token.slice(0, 8)}...
-                              </code>
-                              <button
-                                onClick={() => handleCopyUrl(c.assigned_token!)}
-                                className="text-xs text-gray-500 hover:text-white transition-colors"
-                              >
-                                {copiedId === c.assigned_token ? "✓" : "📋"}
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-600">—</span>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          {c.assigned_token ? (
-                            <span className="text-xs text-emerald-400">✓ Active</span>
-                          ) : (
-                            <button
-                              onClick={() => handleGenerateToken(c.id)}
-                              disabled={generating === c.id}
-                              className="text-xs bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1.5 rounded transition-colors disabled:opacity-30"
-                            >
-                              {generating === c.id ? "..." : "Generate Token"}
-                            </button>
-                          )}
+                  <tbody className="divide-y divide-slate-100">
+                    {loading ? (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
+                          <div className="animate-pulse space-y-2">
+                            <div className="h-4 w-32 bg-slate-100 rounded mx-auto" />
+                            <div className="h-4 w-48 bg-slate-50 rounded mx-auto" />
+                          </div>
                         </td>
                       </tr>
-                    ))}
+                    ) : contacts.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-12 text-center text-slate-400">No contacts yet</td>
+                      </tr>
+                    ) : (
+                      contacts.map((c) => (
+                        <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-4 py-3 font-medium text-slate-900">{c.name}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.email}</td>
+                          <td className="px-4 py-3 text-slate-500 hidden sm:table-cell">{c.business_name}</td>
+                          <td className="px-4 py-3 text-slate-500 hidden md:table-cell">{c.phone}</td>
+                          <td className="px-4 py-3 text-slate-500 hidden lg:table-cell font-mono text-xs">{c.gstin || "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                              {c.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 hidden xl:table-cell">
+                            {c.assigned_token ? (
+                              <div className="flex items-center gap-2">
+                                <code className="text-[10px] text-slate-700 bg-slate-100 px-2 py-0.5 rounded font-mono tabular-nums">
+                                  {c.assigned_token.slice(0, 8)}...
+                                </code>
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    onClick={() => handleCopyUrl(c.assigned_token!)}
+                                    className="text-slate-400 hover:text-slate-900 transition-colors"
+                                  >
+                                    {copiedId === c.assigned_token ? (
+                                      <Check className="w-3 h-3 text-slate-700" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </TooltipTrigger>
+                                  <TooltipContent>Copy sign-in URL</TooltipContent>
+                                </Tooltip>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-300">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {c.assigned_token ? (
+                              <span className="text-xs text-slate-700 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Active
+                              </span>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleGenerateToken(c.id)}
+                                disabled={generating === c.id}
+                                className="h-7 text-xs border-slate-200"
+                              >
+                                {generating === c.id ? "..." : "Generate Token"}
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
-            )}
+            </Card>
           </div>
-        </section>
-      </div>
+        </div>
+      </TooltipProvider>
     </div>
   );
 }

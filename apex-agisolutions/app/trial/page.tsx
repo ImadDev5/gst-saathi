@@ -9,7 +9,7 @@ export default function TrialPage() {
         {/* Header Section */}
         <div className="space-y-4">
           <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight">
-            Experience <span className="text-blue-500">GSTSaathi</span>
+            Experience <span className="text-blue-500">TaxApex</span>
           </h1>
           <p className="text-xl text-neutral-400 max-w-2xl mx-auto backdrop-blur-sm">
             Start your free 14-day trial today. Process unformatted GST invoices

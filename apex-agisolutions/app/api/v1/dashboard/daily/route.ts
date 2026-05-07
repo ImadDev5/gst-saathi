@@ -38,18 +38,21 @@ export async function GET(req: NextRequest) {
       }});
     }
 
+    // Helper: filter active line items (exclude soft-deleted)
+    const activeLi = (e: any) => (e.entry_line_items || []).filter((li: any) => !li.deleted_at);
+
     const sumLi = (entries: any[], types: string[], field: string) =>
       entries
         .filter((e: any) => types.includes(e.entry_type))
         .reduce((s: number, e: any) =>
-          s + (e.entry_line_items || []).reduce((a: number, li: any) => a + (li[field] || 0), 0), 0);
+          s + activeLi(e).reduce((a: number, li: any) => a + (li[field] || 0), 0), 0);
 
     const sumByRate = (entries: any[], types: string[], field: string) => {
       const map: Record<number, number> = {};
       entries
         .filter((e: any) => types.includes(e.entry_type))
         .forEach((e: any) => {
-          (e.entry_line_items || []).forEach((li: any) => {
+          activeLi(e).forEach((li: any) => {
             const r = li.gst_rate || 0;
             map[r] = (map[r] || 0) + (li[field] || 0);
           });
@@ -62,7 +65,7 @@ export async function GET(req: NextRequest) {
       entries
         .filter((e: any) => ['PURCHASE', 'PURCHASE_RETURN'].includes(e.entry_type))
         .forEach((e: any) => {
-          (e.entry_line_items || []).forEach((li: any) => {
+          activeLi(e).forEach((li: any) => {
             const s = li.itc_status || 'UNKNOWN';
             map[s] = (map[s] || 0) + (li.itc_amount_paise || 0);
           });

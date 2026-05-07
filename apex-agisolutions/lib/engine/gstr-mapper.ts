@@ -178,14 +178,14 @@ export function mapGSTR3B(entries: Entry[]) {
   const netSgst = outwardTaxable.sgstPaise - (itcAvailed.sgstPaise - itcReversed.sgstPaise);
 
   return {
-    "3_1_a": { label: "Outward taxable supplies (other than nil/exempt)", ...outwardTaxable },
+    "3_1_a": { label: "Taxable sales (excluding tax-free)", ...outwardTaxable },
     "3_1_a_by_rate": outwardByRate,
-    "3_1_c": { label: "Nil rated / Exempted supplies", ...nilRated },
-    "4_A_5": { label: "All other ITC (eligible+available)", ...itcAvailed },
-    "4_A_blocked": { label: "ITC blocked (Section 17(5))", ...itcBlocked },
-    "4_B_2": { label: "ITC reversed", ...itcReversed },
+    "3_1_c": { label: "Tax-free sales", ...nilRated },
+    "4_A_5": { label: "Tax you can claim back", ...itcAvailed },
+    "4_A_blocked": { label: "Tax blocked by rules", ...itcBlocked },
+    "4_B_2": { label: "Tax claim reversed", ...itcReversed },
     "6_1": {
-      label: "Net tax payable",
+      label: "Net tax to pay",
       igstPaise: Math.max(0, netIgst),
       cgstPaise: Math.max(0, netCgst),
       sgstPaise: Math.max(0, netSgst),

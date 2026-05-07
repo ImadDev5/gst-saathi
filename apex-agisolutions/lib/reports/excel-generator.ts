@@ -35,7 +35,7 @@ export async function generateITCExcel(
   transactions: Transaction[]
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "GSTSaathi";
+  wb.creator = "TaxApex";
   wb.created = new Date();
 
   // ==================== Sheet 1: Summary ====================
@@ -46,7 +46,7 @@ export async function generateITCExcel(
   // Title
   summarySheet.mergeCells("A1:E1");
   const titleCell = summarySheet.getCell("A1");
-  titleCell.value = "GSTSaathi — ITC Analysis Report";
+  titleCell.value = "TaxApex — ITC Analysis Report";
   titleCell.font = { size: 16, bold: true, color: { argb: "FF0891B2" } };
   titleCell.alignment = { horizontal: "left" };
 

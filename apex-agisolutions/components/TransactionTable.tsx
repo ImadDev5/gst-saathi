@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import ITCBadge from "@/components/ITCBadge";
+import { ChevronLeft, ChevronRight, Filter } from "lucide-react";
 
 interface Transaction {
   id: string;
@@ -21,17 +25,7 @@ interface Props {
   onOverride?: (txn: Transaction) => void;
 }
 
-const STATUS_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  ELIGIBLE:    { bg: "bg-emerald-500/15", text: "text-emerald-400", label: "Eligible" },
-  BLOCKED:     { bg: "bg-red-500/15",     text: "text-red-400",     label: "Blocked" },
-  RCM:         { bg: "bg-amber-500/15",   text: "text-amber-400",   label: "RCM" },
-  CONDITIONAL: { bg: "bg-orange-500/15",  text: "text-orange-400",  label: "Conditional" },
-  UNKNOWN:     { bg: "bg-gray-500/15",    text: "text-gray-400",    label: "Unknown" },
-  AT_RISK:     { bg: "bg-yellow-500/15",  text: "text-yellow-400",  label: "At Risk" },
-  NEEDS_INVOICE: { bg: "bg-blue-500/15",  text: "text-blue-400",    label: "Needs Invoice" },
-  TIME_BARRED: { bg: "bg-purple-500/15",   text: "text-purple-400", label: "Time Barred" },
-  PERSONAL:    { bg: "bg-pink-500/15",    text: "text-pink-400",    label: "Personal" },
-};
+const FILTER_OPTIONS = ["", "ELIGIBLE", "BLOCKED", "RCM", "CONDITIONAL", "AT_RISK", "UNKNOWN"];
 
 function formatPaise(paise: number): string {
   return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
@@ -81,9 +75,7 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
       setTransactions([]);
       setTotal(0);
       setLoadError(
-        error instanceof Error
-          ? error.message
-          : "Failed to load transactions",
+        error instanceof Error ? error.message : "Failed to load transactions"
       );
     } finally {
       setLoading(false);
@@ -94,7 +86,7 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
 
   const toggleSort = (field: "transaction_date" | "amount") => {
     if (sortField === field) {
-      setSortDir(d => d === "asc" ? "desc" : "asc");
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortField(field);
       setSortDir("desc");
@@ -105,135 +97,146 @@ export default function TransactionTable({ statementId, onOverride }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Filter bar */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-gray-500 uppercase tracking-wider">Filter:</span>
-        {["", "ELIGIBLE", "BLOCKED", "RCM", "CONDITIONAL", "AT_RISK", "UNKNOWN"].map((s) => (
-          <button
-            key={s}
-            onClick={() => { setFilter(s); setPage(1); }}
-            className={`rounded-full px-3 py-1 text-xs transition-all ${
-              filter === s
-                ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
-                : "bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600"
-            }`}
-          >
-            {s || "All"}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-gray-500">{total} transactions</span>
+        <Filter className="w-3.5 h-3.5 text-slate-400" />
+        <span className="text-xs text-slate-500 uppercase tracking-wider font-medium">Filter:</span>
+        <div className="flex gap-1.5 flex-wrap">
+          {FILTER_OPTIONS.map((s) => (
+            <Button
+              key={s}
+              variant={filter === s ? "default" : "ghost"}
+              size="sm"
+              onClick={() => { setFilter(s); setPage(1); }}
+              className={
+                filter === s
+                  ? "bg-slate-900 text-white hover:bg-slate-800 h-7 text-xs rounded-full"
+                  : "h-7 text-xs rounded-full text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+              }
+            >
+              {s || "All"}
+            </Button>
+          ))}
+        </div>
+        <span className="ml-auto text-xs text-slate-400 tabular-nums">
+          {total} transactions
+        </span>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-gray-800">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-900/80 text-xs uppercase tracking-wider text-gray-500">
-            <tr>
-              <th
-                className="px-4 py-3 text-left cursor-pointer hover:text-gray-300"
-                onClick={() => toggleSort("transaction_date")}
-              >
-                Date {sortField === "transaction_date" && (sortDir === "asc" ? "↑" : "↓")}
-              </th>
-              <th className="px-4 py-3 text-left">Narration</th>
-              <th className="px-4 py-3 text-left">Vendor</th>
-              <th
-                className="px-4 py-3 text-right cursor-pointer hover:text-gray-300"
-                onClick={() => toggleSort("amount")}
-              >
-                Amount {sortField === "amount" && (sortDir === "asc" ? "↑" : "↓")}
-              </th>
-              <th className="px-4 py-3 text-right">GST</th>
-              <th className="px-4 py-3 text-center">ITC Status</th>
-              <th className="px-4 py-3 text-center">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-800/50">
-            {loading ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
-                  <div className="animate-pulse">Loading transactions...</div>
-                </td>
+      <Card className="shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                <th
+                  className="px-4 py-3 text-left font-medium cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => toggleSort("transaction_date")}
+                >
+                  Date {sortField === "transaction_date" && (sortDir === "asc" ? "↑" : "↓")}
+                </th>
+                <th className="px-4 py-3 text-left font-medium">Narration</th>
+                <th className="px-4 py-3 text-left font-medium">Vendor</th>
+                <th
+                  className="px-4 py-3 text-right font-medium cursor-pointer hover:text-slate-900 transition-colors"
+                  onClick={() => toggleSort("amount")}
+                >
+                  Amount {sortField === "amount" && (sortDir === "asc" ? "↑" : "↓")}
+                </th>
+                <th className="px-4 py-3 text-right font-medium">GST</th>
+                <th className="px-4 py-3 text-center font-medium">ITC Status</th>
+                <th className="px-4 py-3 text-center font-medium">Action</th>
               </tr>
-            ) : loadError ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-red-400/80">
-                  Failed to load transactions. Refresh and try again.
-                </td>
-              </tr>
-            ) : transactions.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
-                  No transactions found
-                </td>
-              </tr>
-            ) : (
-              transactions.map((txn) => {
-                const badge = STATUS_BADGE[txn.itc_status] || STATUS_BADGE.UNKNOWN;
-                return (
-                  <tr key={txn.id} className="hover:bg-gray-900/30 transition-colors">
-                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    <div className="animate-pulse space-y-2">
+                      <div className="h-4 w-32 bg-slate-100 rounded mx-auto" />
+                      <div className="h-4 w-48 bg-slate-50 rounded mx-auto" />
+                    </div>
+                  </td>
+                </tr>
+              ) : loadError ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-red-600">
+                    Failed to load transactions. Refresh and try again.
+                  </td>
+                </tr>
+              ) : transactions.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    No transactions found
+                  </td>
+                </tr>
+              ) : (
+                transactions.map((txn) => (
+                  <tr key={txn.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
                       {new Date(txn.transaction_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
                     </td>
-                    <td className="px-4 py-3 text-gray-200 max-w-[250px] truncate" title={txn.description}>
+                    <td className="px-4 py-3 text-slate-900 max-w-[250px] truncate text-xs" title={txn.description}>
                       {txn.description}
                     </td>
-                    <td className="px-4 py-3 text-gray-400">
+                    <td className="px-4 py-3 text-slate-500 text-xs">
                       {txn.mapped_vendor_name || "—"}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-200 font-mono">
+                    <td className="px-4 py-3 text-right text-slate-900 font-mono text-xs tabular-nums">
                       {formatPaise(txn.amount)}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-400 font-mono">
+                    <td className="px-4 py-3 text-right text-slate-500 font-mono text-xs tabular-nums">
                       {formatPaise(txn.gst_amount)}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.bg} ${badge.text}`}>
-                        {badge.label}
-                      </span>
+                      <ITCBadge status={txn.itc_status} />
                       {txn.confidence != null && (
-                        <span className="inline-block ml-1.5 text-[10px] text-gray-500" title={`${(txn.confidence * 100).toFixed(0)}% confidence`}>
+                        <span className="inline-block ml-1 text-[9px] text-slate-400 tabular-nums" title={`${(txn.confidence * 100).toFixed(0)}% confidence`}>
                           {(txn.confidence * 100).toFixed(0)}%
                         </span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => onOverride?.(txn)}
-                        className="text-xs text-cyan-400/70 hover:text-cyan-400 transition-colors"
-                        title="Override classification"
+                        className="text-slate-500 hover:text-slate-900 h-7 text-xs hover:bg-slate-100"
                       >
                         Edit
-                      </button>
+                      </Button>
                     </td>
                   </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="rounded px-3 py-1 text-xs bg-gray-800 text-gray-400 disabled:opacity-30"
+            className="h-8 text-xs"
           >
-            ← Prev
-          </button>
-          <span className="text-xs text-gray-500">
+            <ChevronLeft className="w-3.5 h-3.5 mr-1" />
+            Prev
+          </Button>
+          <span className="text-xs text-slate-500 tabular-nums">
             Page {page} of {totalPages}
           </span>
-          <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}
-            className="rounded px-3 py-1 text-xs bg-gray-800 text-gray-400 disabled:opacity-30"
+            className="h-8 text-xs"
           >
-            Next →
-          </button>
+            Next
+            <ChevronRight className="w-3.5 h-3.5 ml-1" />
+          </Button>
         </div>
       )}
     </div>

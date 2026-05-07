@@ -33,13 +33,16 @@ export async function GET(req: NextRequest) {
       .lte("entry_date", today)
       .is("deleted_at", null);
 
+    // Helper: filter active line items (exclude soft-deleted)
+    const activeLi = (e: any) => (e.entry_line_items || []).filter((li: any) => !li.deleted_at);
+
     // Helper: sum a field from line items of filtered entries
     const sumLi = (entries: any[] | null, types: string[], field: string) => {
       if (!entries) return 0;
       return entries
         .filter((e: any) => types.includes(e.entry_type))
         .reduce((sum: number, e: any) => {
-          return sum + (e.entry_line_items || []).reduce(
+          return sum + activeLi(e).reduce(
             (s: number, li: any) => s + (li[field] || 0), 0
           );
         }, 0);
@@ -52,7 +55,7 @@ export async function GET(req: NextRequest) {
       entries
         .filter((e: any) => types.includes(e.entry_type))
         .forEach((e: any) => {
-          (e.entry_line_items || []).forEach((li: any) => {
+          activeLi(e).forEach((li: any) => {
             const rate = li.gst_rate || 0;
             bySlab[rate] = (bySlab[rate] || 0) + (li[field] || 0);
           });
@@ -67,7 +70,7 @@ export async function GET(req: NextRequest) {
       entries
         .filter((e: any) => ['PURCHASE', 'PURCHASE_RETURN'].includes(e.entry_type))
         .forEach((e: any) => {
-          (e.entry_line_items || []).forEach((li: any) => {
+          activeLi(e).forEach((li: any) => {
             const status = li.itc_status || 'UNKNOWN';
             byStatus[status] = (byStatus[status] || 0) + (li.itc_amount_paise || 0);
           });

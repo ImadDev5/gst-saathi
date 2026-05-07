@@ -1,19 +1,33 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { AnimatePresence } from "framer-motion";
 import StatementUpload from "@/components/StatementUpload";
 import TransactionTable from "@/components/TransactionTable";
 import OverridePanel from "@/components/OverridePanel";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
-import { Share2, RefreshCcw, Download } from "lucide-react";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  RefreshCcw,
+  Share2,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  ShieldCheck,
+  AlertTriangle,
+  Clock,
+  Receipt,
+  Banknote,
+  Layers,
+  Copy,
+  Check,
+  FileInput,
+} from "lucide-react";
 
 interface Summary {
   statementCount: number;
@@ -51,6 +65,22 @@ function formatPaise(paise: number): string {
   return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
 }
 
+const METRIC_CONFIG: { key: keyof Summary; label: string; icon: React.ElementType }[] = [
+  { key: "totalEligiblePaise", label: "Tax saved", icon: ShieldCheck },
+  { key: "totalBlockedPaise", label: "Can't claim", icon: AlertTriangle },
+  { key: "totalRcmPaise", label: "Tax you must pay", icon: Receipt },
+  { key: "totalAtRiskPaise", label: "At risk", icon: Clock },
+  { key: "statementCount", label: "Statements", icon: Layers },
+  { key: "totalTransactions", label: "Transactions", icon: Banknote },
+];
+
+const STATEMENT_STATUS: Record<string, { bg: string; text: string }> = {
+  COMPLETED:  { bg: "bg-slate-100", text: "text-slate-700" },
+  PROCESSING: { bg: "bg-slate-100", text: "text-slate-700" },
+  FAILED:     { bg: "bg-slate-100", text: "text-slate-700" },
+  PENDING:    { bg: "bg-slate-100", text: "text-slate-700" },
+};
+
 export default function Dashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [statements, setStatements] = useState<StatementItem[]>([]);
@@ -59,6 +89,9 @@ export default function Dashboard() {
   const [overrideTxn, setOverrideTxn] = useState<Transaction | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [caLink, setCaLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
 
   const fetchSummary = async () => {
     try {
@@ -120,7 +153,7 @@ export default function Dashboard() {
       if (reportId) {
         const link = document.createElement("a");
         link.href = `/api/v1/reports/${reportId}/download?format=${format}`;
-        link.download = `GSTSaathi_ITC_Report.${format === "excel" ? "xlsx" : "pdf"}`;
+        link.download = `TaxApex_ITC_Report.${format === "excel" ? "xlsx" : "pdf"}`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -132,254 +165,273 @@ export default function Dashboard() {
     }
   };
 
-  const metrics = summary
-    ? [
-        {
-          label: "Statements",
-          value: String(summary.statementCount),
-          color: "text-white",
-        },
-        {
-          label: "Eligible ITC",
-          value: formatPaise(summary.totalEligiblePaise),
-          color: "text-emerald-400",
-        },
-        {
-          label: "Blocked",
-          value: formatPaise(summary.totalBlockedPaise),
-          color: "text-red-400",
-        },
-        {
-          label: "At Risk",
-          value: formatPaise(summary.totalAtRiskPaise),
-          color: "text-yellow-400",
-        },
-        {
-          label: "RCM Payable",
-          value: formatPaise(summary.totalRcmPaise),
-          color: "text-amber-400",
-        },
-        {
-          label: "Transactions",
-          value: String(summary.totalTransactions),
-          color: "text-gray-300",
-        },
-      ]
-    : [];
+  const handleCopy = () => {
+    if (caLink) {
+      navigator.clipboard.writeText(caLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleImportITC = async () => {
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const res = await fetch("/api/v1/entries/import-itc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setImportResult(data.data.summary);
+        setRefreshKey((k) => k + 1);
+      } else {
+        setImportResult(data.error || "No ITC to import");
+      }
+    } catch {
+      setImportResult("Import failed. Please try again.");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   return (
-    <div className="p-4 sm:p-8 text-white">
-      <div className="mx-auto max-w-7xl space-y-8">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-sm uppercase tracking-widest text-gray-500">
-            Module A — ITC Pre-Processor
-          </h1>
+    <div className="p-6">
+      <div className="mx-auto max-w-[1280px] space-y-5">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold text-slate-900">
+              Bank Statement Analyser
+            </h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Upload your bank statement to find tax you can claim back
+            </p>
+          </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setRefreshKey((k) => k + 1)}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded transition-colors"
+              className="text-slate-500 hover:text-slate-900"
             >
-              <RefreshCcw size={14} /> Refresh
-            </button>
-            <button
-              onClick={handleShareCA}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-cyan-600 hover:bg-cyan-500 text-white rounded transition-colors"
+              <RefreshCcw className="w-3.5 h-3.5 mr-1.5" />
+              Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleShareCA} className="border-slate-200">
+              <Share2 className="w-3.5 h-3.5 mr-1.5" />
+              Share with CA
+            </Button>
+            <Popover>
+              <PopoverTrigger>
+                <Button variant="outline" size="sm" className="border-slate-200">
+                  <Download className="w-3.5 h-3.5 mr-1.5" />
+                  Export
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-48 p-1">
+                <button
+                  onClick={() => handleExport("excel")}
+                  className="flex items-center w-full rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  Excel (.xlsx)
+                </button>
+                <button
+                  onClick={() => handleExport("pdf")}
+                  className="flex items-center w-full rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  PDF Report
+                </button>
+              </PopoverContent>
+            </Popover>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleImportITC}
+              disabled={importing || !summary || summary.totalTransactions === 0}
+              className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 disabled:opacity-40"
             >
-              <Share2 size={14} /> Share with CA
-            </button>
-            <button
-              onClick={() => handleExport("excel")}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded transition-colors"
-            >
-              <Download size={14} /> Export
-            </button>
+              {importing ? (
+                <RefreshCcw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <FileInput className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              {importing ? "Importing..." : "Add to monthly return"}
+            </Button>
           </div>
         </div>
 
-        {caLink && (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-            <h3 className="text-sm font-semibold text-emerald-400 mb-2">
-              Shareable CA Link (Valid for 7 days)
-            </h3>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                readOnly
-                value={caLink}
-                className="flex-1 bg-black border border-emerald-500/30 rounded px-3 py-2 text-sm text-gray-300"
-              />
-              <button
-                onClick={() => navigator.clipboard.writeText(caLink)}
-                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm transition-colors"
-              >
-                Copy
-              </button>
+        <AnimatePresence>
+          {caLink && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ShieldCheck className="w-4 h-4 text-slate-600" />
+                <h3 className="text-sm font-medium text-slate-800">
+                  Shareable CA Link (Valid for 7 days)
+                </h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={caLink}
+                  className="flex-1 bg-white border border-slate-200 rounded-md px-3 py-2 text-sm text-slate-900 font-mono"
+                />
+                <Button variant="outline" size="sm" onClick={handleCopy} className="border-slate-200">
+                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </AnimatePresence>
 
-        {/* Summary Cards */}
-        <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <AnimatePresence>
+          {importResult && (
+            <div className={`rounded-lg border p-4 ${importResult.includes("No ITC") || importResult.includes("failed") ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+              <div className="flex items-center gap-2">
+                {importResult.includes("No ITC") || importResult.includes("failed") ? (
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                )}
+                <p className={`text-sm font-medium ${importResult.includes("No ITC") || importResult.includes("failed") ? "text-amber-700" : "text-emerald-700"}`}>
+                  {importResult}
+                </p>
+                <button
+                  onClick={() => setImportResult(null)}
+                  className="ml-auto text-slate-400 hover:text-slate-600"
+                >
+                  ✕
+                </button>
+              </div>
+              {!importResult.includes("No ITC") && !importResult.includes("failed") && (
+                <a href="/retail" className="inline-block mt-2 text-xs text-emerald-600 hover:text-emerald-800 underline">
+                  View in Retail Ledger →
+                </a>
+              )}
+            </div>
+          )}
+        </AnimatePresence>
+
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           {loading
             ? Array.from({ length: 6 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 animate-pulse"
-                >
-                  <div className="h-3 w-16 bg-gray-800 rounded mb-3" />
-                  <div className="h-7 w-20 bg-gray-800 rounded" />
-                </div>
+                <Card key={i} className="shadow-sm">
+                  <CardContent className="p-5">
+                    <div className="h-3 w-16 bg-slate-100 rounded mb-3 animate-pulse" />
+                    <div className="h-7 w-20 bg-slate-50 rounded animate-pulse" />
+                  </CardContent>
+                </Card>
               ))
-            : metrics.map((m) => (
-                <div
-                  key={m.label}
-                  className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 hover:border-gray-700 transition-colors"
-                >
-                  <h2 className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">
-                    {m.label}
-                  </h2>
-                  <p
-                    className={`text-xl sm:text-2xl font-light font-mono ${m.color}`}
-                  >
-                    {m.value}
-                  </p>
-                </div>
-              ))}
-        </section>
+            : METRIC_CONFIG.map((m) => {
+                const Icon = m.icon;
+                const raw = summary?.[m.key as keyof Summary] as number;
+                const value = m.key.includes("Paise") ? formatPaise(raw) : String(raw);
+                return (
+                  <Card key={m.key} className="shadow-sm hover:shadow-md transition-shadow duration-150">
+                    <CardContent className="p-5">
+                      <div className="flex items-center justify-between mb-2">
+                        <h2 className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                          {m.label}
+                        </h2>
+                        <Icon className="w-3.5 h-3.5 text-slate-400" />
+                      </div>
+                      <p className="text-xl font-semibold text-slate-900 tabular-nums">
+                        {value}
+                      </p>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+        </div>
 
-        {/* Charts */}
-        <section className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
-          <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
-            ITC Summary (Paise)
+        <div>
+          <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-3">
+            Upload Bank Statement (CSV)
           </h2>
-          <div className="h-48 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={
-                  summary
-                    ? [
-                        {
-                          name: "ITC Eligible",
-                          amount: summary.totalEligiblePaise,
-                        },
-                        {
-                          name: "Blocked / At Risk",
-                          amount:
-                            summary.totalBlockedPaise +
-                            summary.totalAtRiskPaise,
-                        },
-                        {
-                          name: "RCM",
-                          amount: summary.totalRcmPaise,
-                        },
-                      ]
-                    : []
-                }
-                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-              >
-                <XAxis dataKey="name" stroke="#6b7280" fontSize={12} />
-                <Tooltip
-                  cursor={{ fill: "#374151" }}
-                  contentStyle={{
-                    backgroundColor: "#1f2937",
-                    border: "none",
-                    color: "#fff",
-                  }}
-                />
-                <Bar dataKey="amount" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
+          <Card className="shadow-sm">
+            <CardContent className="p-5">
+              <StatementUpload onUploadComplete={handleUploadComplete} />
+            </CardContent>
+          </Card>
+        </div>
 
-        {/* Upload Section */}
-        <section>
-          <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
-            Upload Bank Statement
-          </h2>
-          <StatementUpload onUploadComplete={handleUploadComplete} />
-        </section>
-
-        {/* Statements List */}
         {statements.length > 0 && (
-          <section>
-            <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
+          <div>
+            <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-3">
               Uploaded Statements
             </h2>
-            <div className="rounded-xl border border-gray-800 bg-gray-900/50 overflow-hidden">
+            <Card className="shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wider">
-                      <th className="text-left p-3">File</th>
-                      <th className="text-left p-3">Bank</th>
-                      <th className="text-left p-3">Status</th>
-                      <th className="text-left p-3">Transactions</th>
-                      <th className="text-left p-3">Uploaded</th>
+                  <thead className="bg-slate-50">
+                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                      <th className="text-left px-4 py-3 font-medium">File</th>
+                      <th className="text-left px-4 py-3 font-medium">Bank</th>
+                      <th className="text-left px-4 py-3 font-medium">Status</th>
+                      <th className="text-left px-4 py-3 font-medium">Transactions</th>
+                      <th className="text-left px-4 py-3 font-medium">Uploaded</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {statements.map((stmt) => (
-                      <tr
-                        key={stmt.id}
-                        className="border-b border-gray-800/50 hover:bg-gray-800/30"
-                      >
-                        <td className="p-3 font-mono text-xs text-gray-300 truncate max-w-[200px]">
-                          {stmt.filename}
-                        </td>
-                        <td className="p-3">
-                          <span className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-400">
-                            {stmt.bank_name}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <span
-                            className={`text-xs font-mono ${
-                              stmt.status === "COMPLETED"
-                                ? "text-emerald-400"
-                                : stmt.status === "PROCESSING"
-                                ? "text-yellow-400"
-                                : stmt.status === "FAILED"
-                                ? "text-red-400"
-                                : "text-gray-400"
-                            }`}
-                          >
-                            {stmt.status}
-                          </span>
-                        </td>
-                        <td className="p-3 text-gray-400">
-                          {stmt.transactionCount}
-                        </td>
-                        <td className="p-3 text-gray-500 text-xs">
-                          {new Date(stmt.created_at).toLocaleDateString(
-                            "en-IN"
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {statements.map((stmt) => {
+                      const statusConfig = STATEMENT_STATUS[stmt.status] || STATEMENT_STATUS.PENDING;
+                      return (
+                        <tr
+                          key={stmt.id}
+                          className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
+                        >
+                          <td className="px-4 py-3 font-mono text-xs text-slate-900 truncate max-w-[200px]">
+                            {stmt.filename}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                              {stmt.bank_name}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium ${statusConfig.bg} ${statusConfig.text}`}>
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                              {stmt.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 text-xs tabular-nums">
+                            {stmt.transactionCount}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 text-xs">
+                            {new Date(stmt.created_at).toLocaleDateString("en-IN")}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-            </div>
-          </section>
+            </Card>
+          </div>
         )}
 
-        {/* Transactions */}
         {(summary?.totalTransactions ?? 0) > 0 && (
-          <section>
-            <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
-              Classified Transactions
-            </h2>
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+                Classified Transactions
+              </h2>
+              <span className="text-xs text-slate-400 tabular-nums">
+                {summary?.totalTransactions}
+              </span>
+            </div>
             <TransactionTable
               key={refreshKey}
               statementId={activeStatement || undefined}
               onOverride={(txn) => setOverrideTxn(txn)}
             />
-          </section>
+          </div>
         )}
 
-        {/* Override Panel */}
         <OverridePanel
           transaction={overrideTxn}
           onClose={() => setOverrideTxn(null)}

@@ -56,7 +56,7 @@ export async function GET(
         status: 200,
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "Content-Disposition": `attachment; filename="GSTSaathi_ITC_Report_${new Date().toISOString().split("T")[0]}.xlsx"`,
+          "Content-Disposition": `attachment; filename="TaxApex_ITC_Report_${new Date().toISOString().split("T")[0]}.xlsx"`,
         },
       });
     }
@@ -73,7 +73,7 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="GSTSaathi_ITC_Report_${new Date().toISOString().split("T")[0]}.pdf"`,
+        "Content-Disposition": `attachment; filename="TaxApex_ITC_Report_${new Date().toISOString().split("T")[0]}.pdf"`,
       },
     });
   } catch (err) {

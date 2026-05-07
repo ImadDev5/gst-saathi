@@ -1,6 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import ITCBadge from "@/components/ITCBadge";
 
 interface Transaction {
   id: string;
@@ -21,11 +33,11 @@ interface Props {
 }
 
 const STATUS_OPTIONS = [
-  { value: "ELIGIBLE", label: "✅ Eligible", color: "text-emerald-400" },
-  { value: "BLOCKED", label: "🚫 Blocked", color: "text-red-400" },
-  { value: "RCM", label: "🔄 RCM", color: "text-amber-400" },
-  { value: "CONDITIONAL", label: "⚠️ Conditional", color: "text-orange-400" },
-  { value: "UNKNOWN", label: "❓ Unknown", color: "text-gray-400" },
+  { value: "ELIGIBLE", label: "Eligible" },
+  { value: "BLOCKED", label: "Blocked" },
+  { value: "RCM", label: "RCM" },
+  { value: "CONDITIONAL", label: "Conditional" },
+  { value: "UNKNOWN", label: "Unknown" },
 ];
 
 export default function OverridePanel({ transaction, onClose, onSaved }: Props) {
@@ -33,6 +45,10 @@ export default function OverridePanel({ transaction, onClose, onSaved }: Props) 
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const handleOpenChange = (open: boolean) => {
+    if (!open) onClose();
+  };
 
   if (!transaction) return null;
 
@@ -71,126 +87,128 @@ export default function OverridePanel({ transaction, onClose, onSaved }: Props) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/60 backdrop-blur-sm">
-      <div className="h-full w-full max-w-md bg-gray-950 border-l border-gray-800 p-6 overflow-y-auto animate-in slide-in-from-right">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-white">Override Classification</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">✕</button>
-        </div>
+    <Sheet open={!!transaction} onOpenChange={handleOpenChange}>
+      <SheetContent className="bg-white border-slate-200 overflow-y-auto w-full sm:max-w-md">
+        <SheetHeader className="pb-4">
+          <SheetTitle className="text-slate-900">Override Classification</SheetTitle>
+          <SheetDescription className="text-slate-500">
+            Change the ITC status for this transaction
+          </SheetDescription>
+        </SheetHeader>
 
-        {/* Transaction info */}
-        <div className="rounded-lg bg-gray-900 border border-gray-800 p-4 mb-6 space-y-2">
+        <div className="space-y-6">
+          <Card className="border-slate-200 bg-slate-50">
+            <CardContent className="p-4 space-y-3">
+              <div>
+                <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Narration</span>
+                <p className="text-sm text-slate-900 mt-0.5">{transaction.description}</p>
+              </div>
+              <div className="flex gap-6">
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Amount</span>
+                  <p className="text-sm text-slate-900 mt-0.5 font-mono tabular-nums">
+                    ₹{(transaction.amount / 100).toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Vendor</span>
+                  <p className="text-sm text-slate-900 mt-0.5">
+                    {transaction.mapped_vendor_name || "Unmatched"}
+                  </p>
+                </div>
+              </div>
+              {transaction.block_reason && (
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Current Reason</span>
+                  <p className="text-sm text-red-700 mt-0.5">{transaction.block_reason}</p>
+                </div>
+              )}
+              {transaction.action_required && (
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Action Required</span>
+                  <p className="text-sm text-amber-700 mt-0.5">{transaction.action_required}</p>
+                </div>
+              )}
+              {transaction.confidence != null && (
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Engine Confidence</span>
+                  <p className="text-sm text-slate-900 mt-0.5 font-mono tabular-nums">
+                    {(transaction.confidence * 100).toFixed(0)}%
+                  </p>
+                </div>
+              )}
+              {transaction.rcm_type && (
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">RCM Type</span>
+                  <p className="text-sm text-slate-900 mt-0.5 font-mono">{transaction.rcm_type}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div>
-            <span className="text-xs text-gray-500 uppercase">Narration</span>
-            <p className="text-sm text-gray-200 mt-0.5">{transaction.description}</p>
+            <Label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium mb-3 block">
+              New ITC Status
+            </Label>
+            <div className="space-y-2">
+              {STATUS_OPTIONS.map((opt) => (
+                <label
+                  key={opt.value}
+                  className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                    newStatus === opt.value
+                      ? "border-slate-900 bg-slate-50"
+                      : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="itc_status"
+                    value={opt.value}
+                    checked={newStatus === opt.value}
+                    onChange={() => setNewStatus(opt.value)}
+                    className="hidden"
+                  />
+                  <ITCBadge status={opt.value} />
+                </label>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-4">
-            <div>
-              <span className="text-xs text-gray-500 uppercase">Amount</span>
-              <p className="text-sm text-gray-200 mt-0.5 font-mono">
-                ₹{(transaction.amount / 100).toLocaleString("en-IN")}
-              </p>
-            </div>
-            <div>
-              <span className="text-xs text-gray-500 uppercase">Vendor</span>
-              <p className="text-sm text-gray-200 mt-0.5">
-                {transaction.mapped_vendor_name || "Unmatched"}
-              </p>
-            </div>
-          </div>
-          {transaction.block_reason && (
-            <div>
-              <span className="text-xs text-gray-500 uppercase">Current Reason</span>
-              <p className="text-sm text-red-400 mt-0.5">{transaction.block_reason}</p>
-            </div>
-          )}
-          {transaction.action_required && (
-            <div>
-              <span className="text-xs text-gray-500 uppercase">Action Required</span>
-              <p className="text-sm text-amber-400 mt-0.5">{transaction.action_required}</p>
-            </div>
-          )}
-          {transaction.confidence != null && (
-            <div>
-              <span className="text-xs text-gray-500 uppercase">Engine Confidence</span>
-              <p className="text-sm text-cyan-400 mt-0.5 font-mono">
-                {(transaction.confidence * 100).toFixed(0)}%
-              </p>
-            </div>
-          )}
-          {transaction.rcm_type && (
-            <div>
-              <span className="text-xs text-gray-500 uppercase">RCM Type</span>
-              <p className="text-sm text-purple-400 mt-0.5 font-mono">{transaction.rcm_type}</p>
-            </div>
-          )}
-        </div>
 
-        {/* New status */}
-        <div className="mb-4">
-          <label className="text-xs text-gray-500 uppercase tracking-wider mb-2 block">
-            New ITC Status
-          </label>
-          <div className="space-y-2">
-            {STATUS_OPTIONS.map((opt) => (
-              <label
-                key={opt.value}
-                className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-all ${
-                  newStatus === opt.value
-                    ? "border-cyan-500/50 bg-cyan-500/5"
-                    : "border-gray-800 hover:border-gray-700"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="itc_status"
-                  value={opt.value}
-                  checked={newStatus === opt.value}
-                  onChange={() => setNewStatus(opt.value)}
-                  className="hidden"
-                />
-                <span className={`text-sm ${opt.color}`}>{opt.label}</span>
-              </label>
-            ))}
+          <div>
+            <Label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium mb-2 block">
+              Reason for Override
+            </Label>
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g., Verified B2B invoice received from vendor"
+              rows={3}
+              className="bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus-visible:ring-slate-900"
+            />
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-600">{error}</p>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              onClick={onClose}
+              className="flex-1 border-slate-200"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 bg-slate-900 text-white hover:bg-slate-800"
+            >
+              {saving ? "Saving..." : "Save Override"}
+            </Button>
           </div>
         </div>
-
-        {/* Reason */}
-        <div className="mb-6">
-          <label className="text-xs text-gray-500 uppercase tracking-wider mb-2 block">
-            Reason for Override
-          </label>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g., Verified B2B invoice received from vendor"
-            rows={3}
-            className="w-full rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-cyan-500 focus:outline-none resize-none"
-          />
-        </div>
-
-        {error && (
-          <p className="text-xs text-red-400 mb-4">{error}</p>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-700 px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-black hover:bg-cyan-400 transition-colors disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save Override"}
-          </button>
-        </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

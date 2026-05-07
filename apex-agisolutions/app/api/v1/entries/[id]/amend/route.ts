@@ -72,7 +72,7 @@ export async function POST(
     }
 
     // Copy line items with negated amounts
-    const amendedItems = (original.entry_line_items || []).map((li: any) => ({
+    const amendedItems = (original.entry_line_items || []).filter((li: any) => !li.deleted_at).map((li: any) => ({
       entry_id: amendment.id,
       product_id: li.product_id,
       product_name: li.product_name,

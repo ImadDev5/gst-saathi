@@ -4,6 +4,12 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { contactSchema, ContactFormData } from '@/lib/validators/contact'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Card, CardContent } from '@/components/ui/card'
+import { CheckCircle2, AlertTriangle } from 'lucide-react'
 
 export default function ContactForm({ className = '' }: { className?: string }) {
   const [successMsg, setSuccessMsg] = useState('')
@@ -44,82 +50,86 @@ export default function ContactForm({ className = '' }: { className?: string }) 
   }
 
   return (
-    <div className={`max-w-md mx-auto p-6 bg-charcoal rounded-xl shadow-lg border border-gray-800 ${className}`}>
-      <h2 className="text-2xl font-display text-white mb-6 text-center">Request GSTSaathi Access</h2>
-      
-      {successMsg && (
-        <div className="mb-4 p-3 bg-green-900/30 border border-green-500 text-green-300 rounded">
-          {successMsg}
-        </div>
-      )}
-      
-      {errorMsg && (
-        <div className="mb-4 p-3 bg-red-900/30 border border-red-500 text-red-300 rounded">
-          {errorMsg}
-        </div>
-      )}
+    <Card className={`shadow-sm ${className}`}>
+      <CardContent className="p-6 space-y-4">
+        <h2 className="text-xl font-semibold text-slate-900 text-center">Request TaxApex Access</h2>
+        
+        {successMsg && (
+          <Alert className="border-emerald-200 bg-emerald-50">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <AlertDescription className="text-emerald-700 text-sm">{successMsg}</AlertDescription>
+          </Alert>
+        )}
+        
+        {errorMsg && (
+          <Alert variant="destructive">
+            <AlertTriangle className="w-4 h-4" />
+            <AlertDescription className="text-sm">{errorMsg}</AlertDescription>
+          </Alert>
+        )}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div>
-          <label className="block text-sm font-sans text-gray-300 mb-1">Company/Business Name *</label>
-          <input 
-            {...register('businessName')} 
-            className="w-full p-2 bg-void border border-gray-700 rounded text-white focus:outline-none focus:border-cyan"
-            placeholder="Acme Corp"
-          />
-          {errors.businessName && <p className="text-red-400 text-xs mt-1">{errors.businessName.message}</p>}
-        </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div>
+            <Label className="text-slate-500 text-xs font-medium">Company/Business Name *</Label>
+            <Input 
+              {...register('businessName')} 
+              placeholder="Acme Corp"
+              className="bg-white border-slate-200 mt-1"
+            />
+            {errors.businessName && <p className="text-red-600 text-xs mt-1">{errors.businessName.message}</p>}
+          </div>
 
-        <div>
-          <label className="block text-sm font-sans text-gray-300 mb-1">Contact Name *</label>
-          <input 
-            {...register('name')} 
-            className="w-full p-2 bg-void border border-gray-700 rounded text-white focus:outline-none focus:border-cyan"
-            placeholder="John Doe"
-          />
-          {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name.message}</p>}
-        </div>
+          <div>
+            <Label className="text-slate-500 text-xs font-medium">Contact Name *</Label>
+            <Input 
+              {...register('name')} 
+              placeholder="John Doe"
+              className="bg-white border-slate-200 mt-1"
+            />
+            {errors.name && <p className="text-red-600 text-xs mt-1">{errors.name.message}</p>}
+          </div>
 
-        <div>
-          <label className="block text-sm font-sans text-gray-300 mb-1">Email *</label>
-          <input 
-            type="email"
-            {...register('email')} 
-            className="w-full p-2 bg-void border border-gray-700 rounded text-white focus:outline-none focus:border-cyan"
-            placeholder="john@example.com"
-          />
-          {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email.message}</p>}
-        </div>
+          <div>
+            <Label className="text-slate-500 text-xs font-medium">Email *</Label>
+            <Input 
+              type="email"
+              {...register('email')} 
+              placeholder="john@example.com"
+              className="bg-white border-slate-200 mt-1"
+            />
+            {errors.email && <p className="text-red-600 text-xs mt-1">{errors.email.message}</p>}
+          </div>
 
-        <div>
-          <label className="block text-sm font-sans text-gray-300 mb-1">Phone Number (10 digits) *</label>
-          <input 
-            type="tel"
-            {...register('phone')} 
-            className="w-full p-2 bg-void border border-gray-700 rounded text-white focus:outline-none focus:border-cyan"
-            placeholder="9876543210"
-          />
-          {errors.phone && <p className="text-red-400 text-xs mt-1">{errors.phone.message}</p>}
-        </div>
+          <div>
+            <Label className="text-slate-500 text-xs font-medium">Phone Number (10 digits) *</Label>
+            <Input 
+              type="tel"
+              {...register('phone')} 
+              placeholder="9876543210"
+              className="bg-white border-slate-200 mt-1"
+            />
+            {errors.phone && <p className="text-red-600 text-xs mt-1">{errors.phone.message}</p>}
+          </div>
 
-        <div>
-          <label className="block text-sm font-sans text-gray-300 mb-1">GSTIN (Optional)</label>
-          <input 
-            {...register('gstin')} 
-            className="w-full p-2 bg-void border border-gray-700 rounded text-white focus:outline-none focus:border-cyan"
-            placeholder="22AAAAA0000A1Z5"
-          />
-          {errors.gstin && <p className="text-red-400 text-xs mt-1">{errors.gstin.message}</p>}
-        </div>
+          <div>
+            <Label className="text-slate-500 text-xs font-medium">GSTIN (Optional)</Label>
+            <Input 
+              {...register('gstin')} 
+              placeholder="22AAAAA0000A1Z5"
+              className="bg-white border-slate-200 mt-1"
+            />
+            {errors.gstin && <p className="text-red-600 text-xs mt-1">{errors.gstin.message}</p>}
+          </div>
 
-        <button 
-          type="submit" 
-          disabled={isSubmitting}
-          className="w-full py-3 px-4 bg-cyan text-void font-bold rounded hover:bg-cyan-dim focus:outline-none disabled:opacity-50 transition-colors"
-        >
-          {isSubmitting ? 'Submitting...' : 'Join Waitlist'}
-        </button>
-      </form>
-    </div>
+          <Button 
+            type="submit" 
+            disabled={isSubmitting}
+            className="w-full bg-slate-900 text-white hover:bg-slate-800 h-11"
+          >
+            {isSubmitting ? 'Submitting...' : 'Join Waitlist'}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   )
 }

@@ -283,7 +283,7 @@ export async function GET(req: NextRequest) {
 
     // Compute totals for each entry
     const enriched = (data || []).map((entry: any) => {
-      const items = entry.entry_line_items || [];
+      const items = (entry.entry_line_items || []).filter((li: any) => !li.deleted_at);
       const totalPaise = items.reduce((sum: number, li: any) => sum + (li.total_paise || 0), 0);
       const totalGstPaise = items.reduce((sum: number, li: any) => sum + (li.total_gst_paise || 0), 0);
       const totalItcPaise = items.reduce((sum: number, li: any) => sum + (li.itc_amount_paise || 0), 0);

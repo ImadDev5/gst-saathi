@@ -32,7 +32,13 @@ export async function GET(req: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const gstr1 = mapGSTR1(entries || []);
+    // Filter out soft-deleted line items
+    const filteredEntries = (entries || []).map((e: any) => ({
+      ...e,
+      entry_line_items: (e.entry_line_items || []).filter((li: any) => !li.deleted_at),
+    }));
+
+    const gstr1 = mapGSTR1(filteredEntries);
 
     return NextResponse.json({ success: true, data: gstr1, meta: { period } });
   } catch (err) {

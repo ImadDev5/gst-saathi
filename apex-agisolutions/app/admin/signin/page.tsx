@@ -40,7 +40,7 @@ export default function AdminSignIn() {
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <h1 className="font-mono text-2xl tracking-tight">
-            GST<span className="text-cyan-400">Saathi</span>{" "}
+            Tax<span className="text-cyan-400">Apex</span>{" "}
             <span className="text-sm text-gray-500 font-normal">Admin</span>
           </h1>
           <p className="mt-2 text-gray-400 text-sm">Enter admin password to continue</p>

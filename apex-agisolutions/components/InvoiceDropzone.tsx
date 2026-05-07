@@ -36,38 +36,38 @@ export default function InvoiceDropzone({ onFileSelected, disabled, required }: 
 
   return (
     <div>
-      <label className="text-xs text-gray-500 uppercase mb-1 block">
-        Invoice Attachment {required && <span className="text-red-400">*</span>}
-        {!required && <span className="text-gray-600 ml-1">(optional)</span>}
+      <label className="text-xs font-medium text-slate-500 mb-1 block">
+        Invoice Attachment {required && <span className="text-red-600">*</span>}
+        {!required && <span className="text-slate-400 ml-1">(optional)</span>}
       </label>
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         className={`relative rounded-lg border-2 border-dashed p-4 text-center transition-colors ${
-          dragOver ? "border-cyan-400 bg-cyan-500/10" : "border-gray-700 bg-gray-900/50"
-        } ${disabled ? "opacity-50 pointer-events-none" : "cursor-pointer hover:border-gray-600"}`}
+          dragOver ? "border-slate-900 bg-slate-50" : "border-slate-300 bg-white hover:border-slate-600"
+        } ${disabled ? "opacity-50 pointer-events-none" : "cursor-pointer"}`}
       >
         {file ? (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-gray-400" />
-              <span className="text-xs text-gray-300 truncate max-w-[200px]">{file.name}</span>
-              <span className="text-[10px] text-gray-600">({(file.size / 1024).toFixed(0)}KB)</span>
+              <FileText className="w-4 h-4 text-slate-500" />
+              <span className="text-xs text-slate-900 truncate max-w-[200px]">{file.name}</span>
+              <span className="text-[10px] text-slate-400">({(file.size / 1024).toFixed(0)}KB)</span>
             </div>
             {!disabled && (
-              <button onClick={(e) => { e.stopPropagation(); removeFile(); }} className="text-gray-500 hover:text-red-400">
+              <button onClick={(e) => { e.stopPropagation(); removeFile(); }} className="text-slate-400 hover:text-red-600 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             )}
           </div>
         ) : (
           <div className="space-y-1">
-            <Upload className="w-6 h-6 text-gray-500 mx-auto" />
-            <p className="text-xs text-gray-500">
-              Drop invoice or <span className="text-cyan-400">browse</span>
+            <Upload className="w-6 h-6 text-slate-400 mx-auto" />
+            <p className="text-xs text-slate-500">
+              Drop invoice or <span className="text-slate-900">browse</span>
             </p>
-            <p className="text-[10px] text-gray-600">JPEG, PNG, PDF • Max 10MB</p>
+            <p className="text-[10px] text-slate-400">JPEG, PNG, PDF &middot; Max 10MB</p>
           </div>
         )}
         <input

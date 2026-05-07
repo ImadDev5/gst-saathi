@@ -70,7 +70,7 @@ export default function SignInModal({ isOpen, onClose }: SignInModalProps) {
             <KeyRound className="w-6 h-6 text-cyan-400" />
           </div>
           <h2 className="font-mono text-2xl tracking-tight">
-            GST<span className="text-cyan-400">Saathi</span>{' '}
+            Tax<span className="text-cyan-400">Apex</span>{' '}
             <span className="text-sm text-gray-500 font-normal">Sign In</span>
           </h2>
           <p className="mt-2 text-gray-400 text-sm">

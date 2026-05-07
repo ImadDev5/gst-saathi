@@ -1,6 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { AnimatePresence } from "framer-motion";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Search, Loader2, ShieldCheck, ShieldX, RefreshCw, Sparkles } from "lucide-react";
+import ITCBadge from "@/components/ITCBadge";
 
 interface ITCResult {
   vendor: string | null;
@@ -16,12 +24,21 @@ interface ITCResult {
   confidence: number;
 }
 
-const STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  ELIGIBLE:  { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400" },
-  BLOCKED:   { bg: "bg-red-500/10",     border: "border-red-500/30",     text: "text-red-400" },
-  RCM:       { bg: "bg-amber-500/10",   border: "border-amber-500/30",   text: "text-amber-400" },
-  UNKNOWN:   { bg: "bg-gray-500/10",    border: "border-gray-500/30",    text: "text-gray-400" },
+const STATUS_ICONS: Record<string, React.ElementType> = {
+  ELIGIBLE: ShieldCheck,
+  BLOCKED: ShieldX,
+  RCM: RefreshCw,
+  UNKNOWN: Sparkles,
 };
+
+const STATUS_COLORS: Record<string, { bg: string; border: string }> = {
+  ELIGIBLE: { bg: "bg-slate-50", border: "border-slate-200" },
+  BLOCKED: { bg: "bg-slate-50", border: "border-slate-200" },
+  RCM: { bg: "bg-slate-50", border: "border-slate-200" },
+  UNKNOWN: { bg: "bg-slate-50", border: "border-slate-200" },
+};
+
+const EXAMPLES = ["Adobe CC ₹5,664", "Swiggy ₹850", "Google Ads ₹45,000", "Office Rent ₹50,000", "Airtel ₹999"];
 
 export default function ITCCheckPage() {
   const [query, setQuery] = useState("");
@@ -58,128 +75,136 @@ export default function ITCCheckPage() {
   };
 
   const colors = result ? STATUS_COLORS[result.itc_status] || STATUS_COLORS.UNKNOWN : null;
+  const Icon = result ? STATUS_ICONS[result.itc_status] || STATUS_ICONS.UNKNOWN : null;
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-[#F8F9FB] text-slate-900">
       <div className="mx-auto max-w-2xl px-4 py-16">
-        {/* Header */}
         <div className="text-center mb-10">
-          <a href="/" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">← gstsaathi.com</a>
-          <h1 className="font-mono text-3xl mt-4 tracking-tight">
-            ITC <span className="text-cyan-400">Checker</span>
+          <Link href="/" className="text-xs text-slate-400 hover:text-slate-900 transition-colors inline-flex items-center gap-1">
+            &larr; TaxApex
+          </Link>
+          <h1 className="text-3xl mt-4 font-bold tracking-tight text-slate-900">
+            Tax <span className="text-slate-900">Saver</span>
           </h1>
-          <p className="mt-2 text-gray-400 text-sm max-w-md mx-auto">
-            Instantly check if your business expense qualifies for Input Tax Credit under GST
+          <p className="mt-2 text-slate-500 text-sm max-w-md mx-auto">
+            Check if you can claim tax back on any business expense
           </p>
-          <p className="text-xs text-gray-600 mt-1">Free • No login required • 5 checks per day</p>
+          <p className="text-xs text-slate-400 mt-1">Free &middot; No login required &middot; 5 checks per day</p>
         </div>
 
-        {/* Input */}
         <div className="flex gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCheck()}
-            placeholder='e.g. "Google Ads ₹45,000" or "Swiggy ₹850"'
-            className="flex-1 rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:border-cyan-500 focus:outline-none"
-          />
-          <button
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCheck()}
+              placeholder='e.g. "Google Ads ₹45,000" or "Swiggy ₹850"'
+              className="pl-10 bg-white border-slate-200 h-11"
+              autoFocus
+            />
+          </div>
+          <Button
             onClick={handleCheck}
             disabled={loading || !query.trim()}
-            className="rounded-xl bg-cyan-500 px-6 py-3 text-sm font-semibold text-black hover:bg-cyan-400 transition-colors disabled:opacity-30 whitespace-nowrap"
+            className="bg-slate-900 text-white hover:bg-slate-800 h-11"
           >
-            {loading ? "Checking..." : "Check ITC"}
-          </button>
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              "Check tax"
+            )}
+          </Button>
         </div>
 
-        {/* Quick examples */}
         <div className="flex flex-wrap gap-2 mt-3">
-          {["Adobe CC ₹5,664", "Swiggy ₹850", "Google Ads ₹45,000", "Office Rent ₹50,000", "Airtel ₹999"].map((ex) => (
+          {EXAMPLES.map((ex) => (
             <button
               key={ex}
-              onClick={() => { setQuery(ex); }}
-              className="rounded-full border border-gray-800 px-3 py-1 text-xs text-gray-500 hover:text-gray-300 hover:border-gray-600 transition-all"
+              onClick={() => setQuery(ex)}
+              className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:text-slate-900 hover:border-slate-300 transition-colors bg-white"
             >
               {ex}
             </button>
           ))}
         </div>
 
-        {/* Error */}
         {error && (
-          <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-400">
-            {error}
-          </div>
+          <Card className="mt-6 border-red-200 bg-red-50">
+            <CardContent className="p-4 text-sm text-red-700">
+              {error}
+            </CardContent>
+          </Card>
         )}
 
-        {/* Result */}
-        {result && colors && (
-          <div className={`mt-8 rounded-xl border ${colors.border} ${colors.bg} p-6 space-y-4 animate-in fade-in duration-300`}>
-            {/* Status banner */}
-            <div className="flex items-start justify-between">
-              <div>
-                <span className={`text-lg font-semibold ${colors.text}`}>
-                  {result.itc_status === "ELIGIBLE" && "✅ "}
-                  {result.itc_status === "BLOCKED" && "🚫 "}
-                  {result.itc_status === "RCM" && "🔄 "}
-                  {result.itc_status === "UNKNOWN" && "❓ "}
-                  {result.itc_status_label}
-                </span>
-              </div>
-              <span className="text-xs text-gray-500 tabular-nums">
-                {Math.round(result.confidence * 100)}% confidence
-              </span>
-            </div>
-
-            {/* Details grid */}
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              {result.vendor && (
-                <div>
-                  <span className="text-xs text-gray-500">Vendor</span>
-                  <p className="text-gray-200">{result.vendor}</p>
-                </div>
-              )}
-              <div>
-                <span className="text-xs text-gray-500">Category</span>
-                <p className="text-gray-200">{result.category}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">GST Rate</span>
-                <p className="text-gray-200">{result.gst_rate}%</p>
-              </div>
-              {result.gst_amount_paise > 0 && (
-                <div>
-                  <span className="text-xs text-gray-500">
-                    {result.rcm_applicable ? "RCM Tax Payable" : "GST Component"}
+        {result && colors && Icon && (
+          <div className="mt-8">
+            <Card className={`border ${colors.border} ${colors.bg} shadow-sm`}>
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <Icon className="w-5 h-5" />
+                    <ITCBadge status={result.itc_status} />
+                  </div>
+                  <span className="text-xs text-slate-400 tabular-nums font-mono">
+                    {Math.round(result.confidence * 100)}% confidence
                   </span>
-                  <p className={`font-mono ${colors.text}`}>
-                    ₹{(result.gst_amount_paise / 100).toLocaleString("en-IN")}
-                  </p>
                 </div>
-              )}
-            </div>
 
-            {/* Block reason */}
-            {result.block_reason && (
-              <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-3">
-                <p className="text-xs text-red-400">{result.block_reason}</p>
-              </div>
-            )}
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  {result.vendor && (
+                    <div>
+                      <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Vendor</span>
+                      <p className="text-slate-900 mt-0.5">{result.vendor}</p>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Category</span>
+                    <p className="text-slate-900 mt-0.5">{result.category}</p>
+                  </div>
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Tax rate</span>
+                    <p className="text-slate-900 mt-0.5">{result.gst_rate}%</p>
+                  </div>
+                  {result.gst_amount_paise > 0 && (
+                    <div>
+                      <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">
+                        {result.rcm_applicable ? "Tax you must pay" : "Tax"}
+                      </span>
+                      <p className="font-mono mt-0.5 tabular-nums text-slate-900">
+                        ₹{(result.gst_amount_paise / 100).toLocaleString("en-IN")}
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-            {/* Action */}
-            <div className="rounded-lg bg-gray-900/50 border border-gray-800 p-3">
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Recommended Action</span>
-              <p className="text-sm text-gray-300 mt-1">{result.action}</p>
-            </div>
+                {result.block_reason && (
+                  <Card className="border-red-200 bg-red-50">
+                    <CardContent className="p-3">
+                      <p className="text-xs text-red-700">{result.block_reason}</p>
+                    </CardContent>
+                  </Card>
+                )}
 
-            {/* CTA */}
-            <div className="pt-2 border-t border-gray-800">
-              <p className="text-xs text-gray-500 text-center">
-                Want detailed analysis of all your expenses?{" "}
-                <a href="/" className="text-cyan-400 hover:underline">Upload your bank statement →</a>
-              </p>
-            </div>
+                <Card className="border-slate-200 bg-white">
+                  <CardContent className="p-3">
+                    <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">What to do</span>
+                    <p className="text-sm text-slate-900 mt-1">{result.action}</p>
+                  </CardContent>
+                </Card>
+
+                <Separator className="bg-slate-200" />
+
+                <p className="text-xs text-slate-400 text-center">
+                  Want detailed analysis of all your expenses?{" "}
+                  <a href="/" className="text-slate-900 hover:underline">
+                    Upload your bank statement &rarr;
+                  </a>
+                </p>
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>

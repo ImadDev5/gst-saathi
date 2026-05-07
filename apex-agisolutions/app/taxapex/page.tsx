@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import ContactForm from "@/components/ContactForm";
-import { KeyRound, ArrowRight, ShieldCheck, Terminal, Sparkles } from "lucide-react";
+import { KeyRound, ArrowRight, ShieldCheck, Terminal, Sparkles, Upload, FileSearch, FileText } from "lucide-react";
 
 const stagger = {
   animate: {
@@ -107,33 +107,68 @@ export default function TaxApexPage() {
         >
           <motion.div
             variants={fadeUp}
-            className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/5 px-4 py-1.5 backdrop-blur-sm"
+            className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-4 py-1.5 backdrop-blur-sm"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="font-mono text-xs text-cyan-400 tracking-widest">SECURE TERMINAL</span>
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-mono text-xs text-emerald-400 tracking-widest">GST ITC OPTIMIZATION</span>
           </motion.div>
 
           <motion.h1
             variants={fadeUp}
-            className="font-display text-5xl font-bold tracking-tight md:text-7xl"
+            className="font-display text-5xl font-bold tracking-tight md:text-6xl"
           >
-            GST<span className="text-cyan-400">Saathi</span>
+            Tax<span className="text-cyan-400">Apex</span>
           </motion.h1>
 
           <motion.div variants={fadeUp} className="mt-3 flex items-center justify-center gap-3">
             <span className="font-mono text-xs tracking-[0.3em] text-gray-600">///</span>
             <span className="font-display text-xl font-light tracking-wider text-gray-400">
-              TAXAPEX
+              GST SAATHI
             </span>
             <span className="font-mono text-xs tracking-[0.3em] text-gray-600">///</span>
           </motion.div>
 
           <motion.p
             variants={fadeUp}
-            className="mt-4 text-sm text-gray-500 font-mono max-w-md mx-auto leading-relaxed"
+            className="mt-4 text-sm text-gray-400 max-w-xl mx-auto leading-relaxed"
           >
-            AI-powered GST ITC pre-processor. Classify transactions, compute claims, and generate
-            filing-ready reports.
+            Upload your bank statement, let AI classify every expense for ITC eligibility,
+            then import into GSTR-3B — all in one flow.
+          </motion.p>
+        </motion.div>
+
+        {/* Unified Flow Diagram */}
+        <motion.div
+          className="mx-auto mb-16 max-w-4xl"
+          initial="initial"
+          animate="animate"
+          variants={stagger}
+        >
+          <motion.div
+            variants={fadeUp}
+            className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-3"
+          >
+            {[
+              { icon: Upload, label: "Upload Bank\nStatement", color: "text-cyan-400", bg: "border-cyan-500/20 bg-cyan-500/5" },
+              { icon: FileSearch, label: "AI Classifies\nITC Eligibility", color: "text-violet-400", bg: "border-violet-500/20 bg-violet-500/5" },
+              { icon: FileText, label: "Import to\nGSTR-3B", color: "text-emerald-400", bg: "border-emerald-500/20 bg-emerald-500/5" },
+            ].map((step, i) => (
+              <div key={i} className="flex items-center gap-3 sm:gap-0">
+                <div className={`flex flex-col items-center gap-2 rounded-xl border ${step.bg} px-5 py-4 w-40`}>
+                  <step.icon className={`w-5 h-5 ${step.color}`} />
+                  <span className="text-[11px] text-gray-400 text-center leading-tight whitespace-pre-line">{step.label}</span>
+                </div>
+                {i < 2 && (
+                  <ArrowRight className="w-4 h-4 text-gray-700 hidden sm:block" />
+                )}
+              </div>
+            ))}
+          </motion.div>
+          <motion.p
+            variants={fadeUp}
+            className="text-center mt-6 text-[11px] text-gray-600 font-mono tracking-wider"
+          >
+            BANK STATEMENT → AI CLASSIFICATION → GSTR-3B FILING
           </motion.p>
         </motion.div>
 
@@ -162,9 +197,9 @@ export default function TaxApexPage() {
                   </div>
                   <div>
                     <h2 className="font-display text-xl font-bold tracking-tight">
-                      Vault Access
+                      Sign In
                     </h2>
-                    <p className="font-mono text-xs text-gray-500">Enter credentials to proceed</p>
+                    <p className="font-mono text-xs text-gray-500">Enter your access token</p>
                   </div>
                 </div>
 
@@ -272,7 +307,7 @@ export default function TaxApexPage() {
             </motion.div>
           </motion.div>
 
-          {/* Right: Waitlist Access */}
+          {/* Right: Product Preview & Access */}
           <motion.div variants={fadeUp}>
             <motion.div
               className="overflow-hidden rounded-2xl border border-amber-500/10 bg-gradient-to-b from-amber-500/[0.02] to-transparent"
@@ -284,33 +319,44 @@ export default function TaxApexPage() {
 
               <div className="px-8 pt-8 md:px-10 md:pt-10">
                 <h2 className="font-display text-xl font-bold tracking-tight">
-                  Request Access
+                  What You Get
                 </h2>
                 <p className="mt-2 font-mono text-xs text-gray-500">
-                  Join the waitlist to get your access token
+                  After sign-in, here&apos;s what awaits
                 </p>
               </div>
 
-              {/* Info callout */}
-              <div className="mx-8 mt-6 rounded-xl border border-amber-500/10 bg-amber-500/[0.03] px-5 py-4 md:mx-10">
-                <div className="flex gap-3">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-[10px] text-amber-400">
-                    !
-                  </span>
-                  <div>
-                    <p className="text-sm font-medium text-amber-200/80">
-                      Don&apos;t have a token?
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500 leading-relaxed">
-                      GSTSaathi is in limited access. Fill out the form below and our team will
-                      review your application and send you an access token.
-                    </p>
+              {/* Feature list */}
+              <div className="mx-8 mt-6 space-y-3 md:mx-10">
+                {[
+                  { icon: Upload, label: "AI-Powered ITC Pre-Processor", desc: "Upload bank statements — get CA-ready ITC reports automatically" },
+                  { icon: FileSearch, label: "GSTR-3B Integration", desc: "Import discovered ITC directly into your GSTR-3B computation" },
+                  { icon: FileText, label: "Retail Digital Ledger", desc: "Track sales & purchases with automatic GST calculation" },
+                ].map((feat, i) => (
+                  <div key={i} className="flex gap-3 rounded-lg border border-white/[0.04] bg-white/[0.01] px-4 py-3">
+                    <feat.icon className="mt-0.5 h-4 w-4 shrink-0 text-amber-400/60" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-200">{feat.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{feat.desc}</p>
+                    </div>
                   </div>
-                </div>
+                ))}
+              </div>
+
+              {/* Try ITC Checker CTA */}
+              <div className="mx-8 mt-6 mb-8 md:mx-10">
+                <a
+                  href="/itc-check"
+                  className="flex items-center justify-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-sm font-medium text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                >
+                  Try Free ITC Checker
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </a>
               </div>
 
               {/* Contact Form */}
-              <div className="p-6 md:p-8">
+              <div className="px-6 pb-6 md:px-8 md:pb-8 border-t border-white/[0.04] pt-6">
+                <p className="text-xs text-gray-500 mb-4 font-mono tracking-wider uppercase">Request Access Token</p>
                 <ContactForm className="!max-w-none !mx-0 !bg-transparent !shadow-none !border-0 !p-0" />
               </div>
             </motion.div>
